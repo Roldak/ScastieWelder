@@ -11,6 +11,7 @@ lazy val scastieWelder = Project(
   file("."),
   settings = baseSettings ++ Seq(
     libraryDependencies += "ch.lara.epfl" %% "welder" % "0.1",
+    libraryDependencies += "org.scalameta" %% "scalameta" % "1.8.0",
     libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
   )
 )
