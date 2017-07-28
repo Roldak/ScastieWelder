@@ -9,21 +9,27 @@ class Macros(val c: Context) {
   import c.universe._
 
   private val preludeOffset = 354 // hardcoded for now
-  
+
+  private def typeOf(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
+
   def suggest(expr: Tree): Tree = {
-    val interface = c.macroApplication.find(_.tpe <:< c.typeOf[Interface]).get
-    val call = q"""scastie.welder.core.Assistant.fromInterface($interface).suggest($expr)"""
-    
+    val Apply(receiver, _) = c.macroApplication
+    val interface = receiver.find(_.tpe <:< c.typeOf[Interface]).get
+
+    val call = q"""scastie.welder.core.Assistant.fromInterface($interface).suggest(expr)"""
+
     val start = c.literal(c.macroApplication.pos.start - preludeOffset)
     val end = c.literal(c.macroApplication.pos.end - preludeOffset)
+
     q"""
 	    {
 	      import com.olegych.scastie.api._
-          val str = "<h1>Select suggestion to apply</h1>" + $call.map { case (name, replacement) => 
-            "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button><br>"
-          }.mkString("\n")
+	      val expr = $expr
+        val str = "<h1>Select suggestion to apply</h1>" + $call.map { case (name, replacement) =>
+          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button><br>"
+        }.mkString("\n")
 	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
-	      prove($expr)
+	      prove(expr)
 	    }
 	    """
   }

@@ -7,7 +7,7 @@ import inox._
 import inox.trees._
 
 trait Interface {
-  val theory: Theory
+  val theory: NTheory
 
   import scala.language.experimental.macros
   import theory._
