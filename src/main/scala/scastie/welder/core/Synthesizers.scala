@@ -10,21 +10,30 @@ trait Synthesizers { self: Assistant =>
   import ScalaAST._
   import ScalaAST.Implicits._
 
-  private def synthesizeValDef(vd: trees.ValDef): ScalaAST = (vd.id.name `.` "::")(synthesizeType(vd.tpe))
+  private def synthesizeValDef(vd: trees.ValDef): ScalaAST = (synthesizeType(vd.tpe) `.` "::")(vd.id.name)
 
   private def synthesizeType(tpe: Type): ScalaAST = tpe match {
-    case FunctionType(from, to) => (Tuple(from map synthesizeType) `.` "=>:")(synthesizeType(to))
-    case _ => tpe.toString
+    case TypeParameter(id, flags) => Raw(id.name)
+    case FunctionType(from, to)   => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
+    case ADTType(id, tps)         => Raw(id.name)(tps map synthesizeType)
+    case _                        => tpe.toString
   }
 
   private def synthesizeExpr(expr: Expr): ScalaAST = {
     def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
 
     expr match {
-      case Forall(vds, body)   => Raw("forall")(vds map synthesizeValDef)(Lambda(vds map (_.id.name), synthesizeExpr(body)))
-      case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)
-      case Equals(lhs, rhs)    => synthesizeInfixOp(lhs, "===", rhs)
-      case _                   => expr.toString
+      case Variable(id, tpe, flags)          => Raw(id.name)
+      case Forall(vds, body)                 => Raw("forall")(vds map synthesizeValDef)(Lambda(vds map (_.id.name), synthesizeExpr(body)))
+      case Implies(hyp, concl)               => synthesizeInfixOp(hyp, "==>", concl)
+      case Equals(lhs, rhs)                  => synthesizeInfixOp(lhs, "===", rhs)
+      case And(Seq(lhs, rhs))                => synthesizeInfixOp(lhs, "&&", rhs)
+      case And(exprs)                        => Raw("And")(exprs map synthesizeExpr)
+      case Or(Seq(lhs, rhs))                 => synthesizeInfixOp(lhs, "||", rhs)
+      case Or(exprs)                         => Raw("Or")(exprs map synthesizeExpr)
+      case Application(callee, args)         => synthesizeExpr(callee)(args map synthesizeExpr)
+      case FunctionInvocation(id, tps, args) => Raw(id.name)(tps map synthesizeType)(args map synthesizeExpr)
+      case _                                 => expr.toString
     }
   }
 

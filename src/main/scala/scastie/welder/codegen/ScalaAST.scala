@@ -7,7 +7,8 @@ object ScalaAST {
   case class IntLiteral(lit: Int) extends ScalaAST
 
   case class Select(obj: ScalaAST, member: String) extends ScalaAST
-  case class Invocation(obj: ScalaAST, args: Seq[ScalaAST]) extends ScalaAST
+  case class TypeApply(obj: ScalaAST, tps: Seq[ScalaAST]) extends ScalaAST
+  case class Apply(obj: ScalaAST, args: Seq[ScalaAST]) extends ScalaAST
   case class Block(stmts: Seq[ScalaAST]) extends ScalaAST
   case class Ascript(obj: ScalaAST, tpe: ScalaAST) extends ScalaAST
   
@@ -21,11 +22,11 @@ object ScalaAST {
 
   object Implicits {
     implicit class Api(val ast: ScalaAST) extends AnyVal {
-      def apply(arg0: ScalaAST): ScalaAST = Invocation(ast, Seq(arg0))
-      def apply(arg0: ScalaAST, arg1: ScalaAST): ScalaAST = Invocation(ast, Seq(arg0, arg1))
-      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST): ScalaAST = Invocation(ast, Seq(arg0, arg1, arg2))
-      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST, arg3: ScalaAST): ScalaAST = Invocation(ast, Seq(arg0, arg1, arg2, arg3))
-      def apply(args: Seq[ScalaAST]): ScalaAST = Invocation(ast, args)
+      def apply(arg0: ScalaAST): ScalaAST = Apply(ast, Seq(arg0))
+      def apply(arg0: ScalaAST, arg1: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1))
+      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1, arg2))
+      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST, arg3: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1, arg2, arg3))
+      def apply(args: Seq[ScalaAST]): ScalaAST = Apply(ast, args)
 
       def `.`(member: String): ScalaAST = Select(ast, member)
       def `:`(tpe: ScalaAST): ScalaAST = Ascript(ast, tpe)
