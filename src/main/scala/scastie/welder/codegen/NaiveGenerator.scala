@@ -24,6 +24,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
     case ValDef(pattern, rhs)  => s"val ${genPattern(pattern)} = ${gen(rhs)}"
 
     case Lambda(params, body)  => s"(${params map genPattern mkString ", "}) => ${gen(body)}"
+    case Tuple(elems)          => s"(${elems map gen mkString ", "})"
   }
 
   override def generateScalaCode(ast: ScalaAST): String = {

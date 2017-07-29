@@ -17,6 +17,7 @@ object ScalaAST {
   
   case class ValDef(decl: Pattern, rhs: ScalaAST) extends ScalaAST
   case class Lambda(params: Seq[Pattern], body: ScalaAST) extends ScalaAST
+  case class Tuple(elems: Seq[ScalaAST]) extends ScalaAST
 
   object Implicits {
     implicit class Api(val ast: ScalaAST) extends AnyVal {
