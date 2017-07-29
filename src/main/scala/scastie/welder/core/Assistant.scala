@@ -17,7 +17,7 @@ trait Assistant
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
 
   def suggest(expr: Expr): Seq[SynthesizedSuggestion] = suggestTopLevel(expr) map {
-    sugg => synthesize(new NaiveGenerator)(expr, sugg, e => s"suggest($e)")
+    sugg => synthesize(new NaiveGenerator)(expr, sugg, e => s"""suggest(\"$e\")""")
   }
 
   private def suggestTopLevel(expr: Expr): Seq[NamedSuggestion] = expr match {

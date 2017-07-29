@@ -5,23 +5,25 @@ import scala.meta._
 class NaiveGenerator extends ScalaCodeGenerator {
   import ScalaAST._
 
+  private def genPattern(pattern: Pattern): String = pattern match {
+    case ValDecl(id, Some(tpe))  => s"$id: ${gen(tpe)}"
+    case ValDecl(id, None)       => id
+    case Unapply(extr, patterns) => s"$extr(${patterns map genPattern mkString ", "})"
+  }
+
   private def gen(ast: ScalaAST): String = ast match {
-    case Raw(text) => text
-    case StringLiteral(lit) => s""""$lit""""
-    case IntLiteral(lit) => lit.toString
-    
-    case Select(obj, member) => s"""${gen(obj)}.$member"""
+    case Raw(text)             => text
+    case StringLiteral(lit)    => s""""$lit""""
+    case IntLiteral(lit)       => lit.toString
+
+    case Select(obj, member)   => s"""${gen(obj)}.$member"""
     case Invocation(obj, args) => s"${gen(obj)}(${args map gen mkString ", "})"
-    case Block(stmts) => s"{stmts map gen mkString "; "}"
-    
-    case ValDef(ValDecl(id, Some(tpe)), rhs) => s"val id: ${gen(tpe)} = ${gen(rhs)}"
-    case ValDef(ValDecl(id, None), rhs) => s"val id = ${gen(rhs)}"
-    case Lambda(params, body) => 
-      val paramsstr = params map {
-        case ValDecl(id, Some(tpe)) => s"$id: ${gen(tpe)}"
-        case ValDecl(id, None) => id
-      }
-      s"(${paramsstr mkString ", "}) => ${gen(body)}"
+    case Block(stmts)          => s"{${stmts map gen mkString "; "}}"
+    case Ascript(obj, tpe)     => s"${gen(obj)}: ${gen(tpe)}"
+
+    case ValDef(pattern, rhs)  => s"val ${genPattern(pattern)} = ${gen(rhs)}"
+
+    case Lambda(params, body)  => s"(${params map genPattern mkString ", "}) => ${gen(body)}"
   }
 
   override def generateScalaCode(ast: ScalaAST): String = {
