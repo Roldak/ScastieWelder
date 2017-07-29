@@ -32,7 +32,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
     println(parsed)
     parsed match {
       case Parsed.Success(tree) =>
-        println(s"$tree, ${tree.structure}, $tree.syntax")
+        println(s"$tree, ${tree.structure}, ${tree.syntax}")
       case _ =>
     }
     res

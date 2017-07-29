@@ -11,7 +11,7 @@ trait Assistant
     with Analysers 
     with Synthesizers {
 
-  val theory: NTheory
+  val theory: AssistedTheory
 
   case class Result(proof: theory.Proof, expression: Expr)
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
@@ -42,7 +42,7 @@ trait Assistant
 }
 
 object Assistant {
-  def fromInterface(i: Interface): Assistant { val theory: i.theory.type } = new Assistant {
-    override val theory: i.theory.type = i.theory
+  def fromAssistedTheory(thry: AssistedTheory): Assistant { val theory: thry.type } = new Assistant {
+    override val theory: thry.type = thry
   }
 }

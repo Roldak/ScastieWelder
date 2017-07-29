@@ -1,16 +1,18 @@
 package scastie
 
+import scastie.welder.macros._
+
 import _root_.welder._
 import inox._
+import inox.trees._
 
 package object welder {
-  type NTheory = Theory with Proofs
-  
-  def theoryWithProofsOf(prgm: InoxProgram): NTheory = new Theory with Proofs {
-    override val program = prgm
+  trait AssistedTheory extends Theory with Proofs {
+    import scala.language.experimental.macros
+    def suggest(expr: Expr): Attempt[Theorem] = macro Macros.suggest
   }
-  
-  def interfaceOf(thry: NTheory): Interface { val theory: thry.type } = new Interface {
-    override val theory: thry.type = thry
+
+  def assistedTheoryOf(prgm: InoxProgram): AssistedTheory = new AssistedTheory {
+    override val program = prgm
   }
 }

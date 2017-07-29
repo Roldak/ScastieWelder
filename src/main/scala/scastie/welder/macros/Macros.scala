@@ -1,9 +1,8 @@
 package scastie.welder.macros
 
 import scala.reflect.macros.blackbox.Context
-
-import scastie.welder.Interface
 import scastie.welder.core.Assistant
+import scastie.welder._
 
 class Macros(val c: Context) {
   import c.universe._
@@ -14,9 +13,10 @@ class Macros(val c: Context) {
 
   def suggest(expr: Tree): Tree = {
     val Apply(receiver, _) = c.macroApplication
-    val interface = receiver.find(_.tpe <:< c.typeOf[Interface]).get
-
-    val call = q"""scastie.welder.core.Assistant.fromInterface($interface).suggest(expr)"""
+    
+    assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
+    
+    val call = q"""scastie.welder.core.Assistant.fromAssistedTheory(${c.prefix}).suggest(expr)"""
 
     val start = c.macroApplication.pos.start - preludeOffset
     val end = c.macroApplication.pos.end - preludeOffset
