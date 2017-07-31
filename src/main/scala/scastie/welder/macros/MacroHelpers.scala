@@ -7,11 +7,11 @@ trait MacroHelpers {
 
   import c.universe._
 
-  object StatefulTraverser {
+  object IOTraverser {
     trait Actionner[T, U] {
-      def one(tree: Tree, state: T): U
-      def some(trees: Seq[Tree], state: T)(implicit merge: Seq[U] => U): U
-      def children(tree: Tree, state: T)(implicit merge: Seq[U] => U): U
+      def one(tree: Tree, input: T): U
+      def some(trees: Seq[Tree], input: T)(implicit merge: Seq[U] => U): U
+      def children(tree: Tree, input: T)(implicit merge: Seq[U] => U): U
     }
 
     class UnitActionnerDelegate[U](val actionner: Actionner[Unit, U]) {
@@ -20,42 +20,42 @@ trait MacroHelpers {
       def children(tree: Tree)(implicit merge: Seq[U] => U): U = actionner.children(tree, ())
     }
 
-    def apply[InState, OutState](defaultOutState: OutState)(visitor: PartialFunction[(Tree, InState, Actionner[InState, OutState]), OutState]): (Tree, InState) => OutState = {
+    def apply[In, Out](defaultOutput: Out)(visitor: PartialFunction[(Tree, In, Actionner[In, Out]), Out]): (Tree, In) => Out = {
       class MyTraverser extends Traverser {
-        var inState: InState = _
-        var outState: OutState = _
+        var input: In = _
+        var output: Out = _
 
-        private val actionner = new Actionner[InState, OutState] {
-          override def one(tree: Tree, st: InState): OutState = {
-            val savedState = inState
-            inState = st
+        private val actionner = new Actionner[In, Out] {
+          override def one(tree: Tree, st: In): Out = {
+            val savedInput = input
+            input = st
             traverse(tree)
-            inState = savedState
-            outState
+            input = savedInput
+            output
           }
 
-          override def some(trees: Seq[Tree], st: InState)(implicit merge: Seq[OutState] => OutState): OutState = merge(trees map (one(_, st)))
-          override def children(tree: Tree, st: InState)(implicit merge: Seq[OutState] => OutState): OutState = some(tree.children, st)(merge)
+          override def some(trees: Seq[Tree], st: In)(implicit merge: Seq[Out] => Out): Out = merge(trees map (one(_, st)))
+          override def children(tree: Tree, st: In)(implicit merge: Seq[Out] => Out): Out = some(tree.children, st)(merge)
         }
 
         override def traverse(t: Tree): Unit = {
-          outState =
-            if (visitor.isDefinedAt(t, inState, actionner)) visitor(t, inState, actionner)
-            else defaultOutState
+          output =
+            if (visitor.isDefinedAt(t, input, actionner)) visitor(t, input, actionner)
+            else defaultOutput
         }
       }
 
       val traverser = new MyTraverser
 
-      (tree: Tree, initialState: InState) => {
-        traverser.inState = initialState
+      (tree: Tree, initialInput: In) => {
+        traverser.input = initialInput
         traverser.traverse(tree)
-        traverser.outState
+        traverser.output
       }
     }
 
-    def apply[OutState](defaultOutState: OutState)(visitor: PartialFunction[(Tree, UnitActionnerDelegate[OutState]), OutState]): Tree => OutState = {
-      val traverser = apply[Unit, OutState](defaultOutState) {
+    def apply[Out](defaultOutput: Out)(visitor: PartialFunction[(Tree, UnitActionnerDelegate[Out]), Out]): Tree => Out = {
+      val traverser = apply[Unit, Out](defaultOutput) {
         case (tree, _, actionner) => visitor(tree, new UnitActionnerDelegate(actionner))
       }
 

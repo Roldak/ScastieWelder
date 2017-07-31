@@ -11,9 +11,9 @@ class Macros(val c: Context) extends MacroHelpers {
 
   private def typeOf(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
 
-  private lazy val pathToMacro = StatefulTraverser[Option[List[Tree]]](None) {
+  private lazy val pathToMacro = IOTraverser[Option[List[Tree]]](None) {
     case (tree, _) if tree.pos == c.macroApplication.pos => Some(Nil)
-    case (other, rec)                                    => rec.children(other)(_.find(_ != None).getOrElse(None)).map(_.::(other))
+    case (other, rec)                                    => rec.children(other)(_.find(_ != None).getOrElse(None)).map(other :: _)
   }(c.enclosingPackage).get
 
   def suggest(expr: Tree): Tree = {
@@ -68,34 +68,34 @@ class Macros(val c: Context) extends MacroHelpers {
   }
 
   private lazy val reachableValOrDefs: Set[ValOrDefDef] = {
-    case class InState(path: List[Tree], inClosedScope: Boolean) {
+    case class Input(path: List[Tree], inClosedScope: Boolean) {
       def next = copy(path = path.tail)
       def next(isInClosedScope: Boolean) = copy(path = path.tail, inClosedScope = isInClosedScope)
 
       def isPrefix(tree: Tree): Boolean = path != Nil && path.head == tree
     }
-    type OutState = Set[ValOrDefDef]
+    type Output = Set[ValOrDefDef]
 
-    implicit def mergeStates(states: Seq[OutState]): OutState = states.flatten.toSet
+    implicit def mergeOutputs(outs: Seq[Output]): Output = outs.flatten.toSet
 
-    val traverser = StatefulTraverser[InState, OutState](Set.empty) {
-      case (tree, state, rec) if state.isPrefix(tree) => {
-        val resState = tree match {
-          case Template(_, self, body)         => rec.some(body, state.next(false)) ++ ValOrDefDefCollector(tree)
-          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, state.next(true)) ++ params.flatten
-          case _                               => rec.children(tree, state.next)
+    val traverser = IOTraverser[Input, Output](Set.empty) {
+      case (tree, input, rec) if input.isPrefix(tree) => {
+        val output = tree match {
+          case Template(_, self, body)         => rec.some(body, input.next(false)) ++ ValOrDefDefCollector(tree)
+          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, input.next(true)) ++ params.flatten
+          case _                               => rec.children(tree, input.next)
         }
 
-        if (state.inClosedScope) {
-          resState ++ ValOrDefDefCollector(tree, tree.children.find(state.next.isPrefix).getOrElse(null))
+        if (input.inClosedScope) {
+          output ++ ValOrDefDefCollector(tree, tree.children.find(input.next.isPrefix).getOrElse(null))
         } else {
-          resState
+          output
         }
       }
     }
 
     c.enclosingRun.units.map {
-      unit => traverser(unit.body, InState(pathToMacro, false))
+      unit => traverser(unit.body, Input(pathToMacro, false))
     }.flatten.toSet
   }
 }
