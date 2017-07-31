@@ -1,9 +1,11 @@
-package scastie.welder.utils
+package scastie.welder.core
 
 import inox._
 import inox.evaluators._
-
 import scala.collection.BitSet
+import scala.BigInt
+import scala.annotation.migration
+import scala.math.BigInt.int2bigInt
 
 trait PartialEvaluator
     extends ContextualEvaluator
@@ -44,7 +46,7 @@ trait PartialEvaluator
     case _ => true
   }
 
-  protected[utils] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = {
+  protected[core] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = {
     val res = expr match {
       case v: Variable => rctx.mappings.get(v.toVal).getOrElse(v)
 

@@ -24,8 +24,11 @@ trait Assistant
   def suggest(expr: Expr): Seq[SynthesizedSuggestion] = {
     val codeGen = new NaiveGenerator
     
-    suggestTopLevel(expr) map {
-      sugg => SynthesizedSuggestion(sugg._1, escapeProperly(codeGen.generateScalaCode(synthesize(expr, sugg._2))))
+    suggestTopLevel(expr) flatMap {
+      sugg => util.Try(synthesize(expr, sugg._2)) map (synthed => SynthesizedSuggestion(sugg._1, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
+        case util.Success(synthsugg) => Some(synthsugg)
+        case util.Failure(error) => println(error); None
+      }
     }
   }
 

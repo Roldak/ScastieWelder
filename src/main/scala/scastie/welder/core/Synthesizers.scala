@@ -19,11 +19,12 @@ trait Synthesizers { self: Assistant =>
   private def synthesizeValDef(vd: trees.ValDef): ScalaAST = (synthesizeType(vd.tpe) `.` "::")(vd.id.name)
 
   private def synthesizeType(tpe: Type): ScalaAST = tpe match {
-    case Reflected(path)             => Raw(path)
-    case TypeParameter(id, _)        => throw new SynthesisError(s"Could not synthesize type parameter ${id.name}")
-    case FunctionType(from, to)      => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
-    case ADTType(Reflected(id), tps) => Raw("T")(Raw(id))(tps map synthesizeType)
-    case _                           => throw new SynthesisError(s"Could not synthesize type ${tpe}")
+    case Reflected(path)                     => Raw(path)
+    case TypeParameter(Reflected(id), flags) => Raw("TypeParameter")(Raw(id), Raw(flags.toString))
+    case FunctionType(from, to)              => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
+    case TupleType(tps)                      => Raw("T")(tps map synthesizeType)
+    case ADTType(Reflected(id), tps)         => Raw("T")(Raw(id))(tps map synthesizeType)
+    case _                                   => throw new SynthesisError(s"Could not synthesize type ${tpe}")
   }
 
   private def synthesizeExpr(expr: Expr): ScalaAST = {
