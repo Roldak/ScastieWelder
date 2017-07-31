@@ -11,10 +11,10 @@ class Macros(val c: Context) extends MacroHelpers {
 
   private def typeOf(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
 
-  private lazy val pathToMacro = StatefulTraverser[Option[List[Tree]]] {
-    case (tree, _, _) if tree.pos == c.macroApplication.pos => Some(Nil)
-    case (other, _, rec)                                    => rec.children(other, None)(_.find(_ != None).getOrElse(None)).map(_.::(other))
-  }(c.enclosingPackage, None).get
+  private lazy val pathToMacro = StatefulTraverser[Option[List[Tree]]](None) {
+    case (tree, _) if tree.pos == c.macroApplication.pos => Some(Nil)
+    case (other, rec)                                    => rec.children(other)(_.find(_ != None).getOrElse(None)).map(_.::(other))
+  }(c.enclosingPackage).get
 
   def suggest(expr: Tree): Tree = {
     val Apply(receiver, _) = c.macroApplication
@@ -30,7 +30,7 @@ class Macros(val c: Context) extends MacroHelpers {
     val start = c.macroApplication.pos.start - preludeOffset
     val end = c.macroApplication.pos.end - preludeOffset
 
-    println(reachableValOrDefs map (_.symbol))
+    println(reachableValOrDefs map (_.symbol.typeSignature))
 
     q"""
 	    {
@@ -50,8 +50,6 @@ class Macros(val c: Context) extends MacroHelpers {
     private var valdefs: List[ValOrDefDef] = _
     private var stillCollecting = true
 
-    println("BEFORE: " + before)
-
     def findAll(t: Tree): List[ValOrDefDef] = {
       valdefs = Nil
       super.traverse(t)
@@ -59,9 +57,7 @@ class Macros(val c: Context) extends MacroHelpers {
     }
 
     override def traverse(t: Tree): Unit = t match {
-      case tree if tree == before =>
-        println("helloooooo")
-        stillCollecting = false
+      case tree if tree == before             => stillCollecting = false
       case vd: ValOrDefDef if stillCollecting => valdefs ::= vd
       case _                                  =>
     }
@@ -72,37 +68,34 @@ class Macros(val c: Context) extends MacroHelpers {
   }
 
   private lazy val reachableValOrDefs: Set[ValOrDefDef] = {
-    // TODO: split StatefulTraverser states in two
-
-    case class State(path: List[Tree], inClosedScope: Boolean, valdefs: Set[ValOrDefDef]) {
-      def next: State = copy(path = path.tail)
-      def enterClosedScope = copy(inClosedScope = true)
-      def withDef(vd: ValOrDefDef): State = copy(valdefs = valdefs + vd)
-      def withDefs(vds: Iterable[ValOrDefDef]): State = copy(valdefs = valdefs ++ vds)
+    case class InState(path: List[Tree], inClosedScope: Boolean) {
+      def next = copy(path = path.tail)
+      def next(isInClosedScope: Boolean) = copy(path = path.tail, inClosedScope = isInClosedScope)
 
       def isPrefix(tree: Tree): Boolean = path != Nil && path.head == tree
     }
+    type OutState = Set[ValOrDefDef]
 
-    def mergeStates(states: Seq[State]): State = State(Nil, false, states.map(_.valdefs).flatten.toSet)
+    implicit def mergeStates(states: Seq[OutState]): OutState = states.flatten.toSet
 
-    val traverser = StatefulTraverser[State] {
+    val traverser = StatefulTraverser[InState, OutState](Set.empty) {
       case (tree, state, rec) if state.isPrefix(tree) => {
         val resState = tree match {
-          case Template(_, self, body)         => rec.some(body, state.next)(mergeStates) withDefs ValOrDefDefCollector(tree)
-          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, state.next.enterClosedScope) withDefs params.flatten
-          case _                               => rec.children(tree, state.next)(mergeStates)
+          case Template(_, self, body)         => rec.some(body, state.next(false)) ++ ValOrDefDefCollector(tree)
+          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, state.next(true)) ++ params.flatten
+          case _                               => rec.children(tree, state.next)
         }
-        
+
         if (state.inClosedScope) {
-          resState withDefs ValOrDefDefCollector(tree, tree.children.find(state.next.isPrefix).getOrElse(null))          
-        } else { 
+          resState ++ ValOrDefDefCollector(tree, tree.children.find(state.next.isPrefix).getOrElse(null))
+        } else {
           resState
         }
       }
     }
 
     c.enclosingRun.units.map {
-      unit => traverser(unit.body, State(pathToMacro, false, Set.empty)).valdefs
+      unit => traverser(unit.body, InState(pathToMacro, false))
     }.flatten.toSet
   }
 }
