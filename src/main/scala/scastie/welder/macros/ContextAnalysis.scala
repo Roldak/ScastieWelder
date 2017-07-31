@@ -4,9 +4,9 @@ import scala.reflect.macros.blackbox.Context
 
 trait ContextAnalysis { self: Macros =>
   val c: Context
-  
+
   import c.universe._
-  
+
   protected[macros] class ValOrDefDefCollector(val before: Tree) extends Traverser {
     private var valdefs: List[ValOrDefDef] = _
     private var stillCollecting = true
@@ -28,19 +28,23 @@ trait ContextAnalysis { self: Macros =>
     def apply(tree: Tree, before: Tree = null): List[ValOrDefDef] = (new ValOrDefDefCollector(before)).findAll(tree)
   }
 
+  protected[macros] def collectBinds(pattern: Tree): Set[Bind] = pattern.collect {
+    case b: Bind => b
+  } toSet
+
   protected[macros] lazy val pathToMacro = IOTraverser[Option[List[Tree]]](None) {
-    case (tree, _) if tree.pos == c.macroApplication.pos => Some(Nil)
+    case (tree, _) if tree.pos == c.macroApplication.pos => Some(tree :: Nil)
     case (other, rec)                                    => rec.children(other)(_.find(_ != None).getOrElse(None)).map(other :: _)
   }(c.enclosingPackage).get
 
-  protected[macros] lazy val reachableValOrDefs: Set[ValOrDefDef] = {
+  protected[macros] lazy val reachableDefs: Set[DefTree] = {
     case class Input(path: List[Tree], inClosedScope: Boolean) {
       def next = copy(path = path.tail)
       def next(isInClosedScope: Boolean) = copy(path = path.tail, inClosedScope = isInClosedScope)
 
       def isPrefix(tree: Tree): Boolean = path != Nil && path.head == tree
     }
-    type Output = Set[ValOrDefDef]
+    type Output = Set[DefTree]
 
     implicit def mergeOutputs(outs: Seq[Output]): Output = outs.flatten.toSet
 
@@ -49,6 +53,7 @@ trait ContextAnalysis { self: Macros =>
         val output = tree match {
           case Template(_, self, body)         => rec.some(body, input.next(false)) ++ ValOrDefDefCollector(tree)
           case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, input.next(true)) ++ params.flatten
+          case CaseDef(pat, _, body)           => rec.one(body, input.next) ++ collectBinds(pat)
           case _                               => rec.children(tree, input.next)
         }
 

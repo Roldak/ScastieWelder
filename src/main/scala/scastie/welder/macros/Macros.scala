@@ -30,7 +30,10 @@ class Macros(val c: Context)
 		*/
     //println(reachableValOrDefs map (_.symbol.typeSignature))
 
-    val values = reachableValOrDefs filter (!_.symbol.isMethod) map (vd => vd.name.toString -> vd.name) toMap
+    //println("PATH: " + (pathToMacro map (_.getClass.getSimpleName)))
+    val values = reachableDefs filter (!_.symbol.isMethod) map (vd => vd.name.toString -> vd.name) toMap
+    
+    println(values)
 
     q"""
 	    {
@@ -44,5 +47,11 @@ class Macros(val c: Context)
 	      prove(expr)
 	    }
 	    """
+  }
+  
+  def suggestInline: Tree = {
+    //println("PATH: " + (pathToMacro map (_.getClass.getSimpleName)))
+    println(pathToMacro.last)
+    q""
   }
 }
