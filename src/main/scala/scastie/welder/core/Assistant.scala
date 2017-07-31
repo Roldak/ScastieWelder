@@ -14,6 +14,7 @@ trait Assistant
     with Synthesizers {
 
   val theory: AssistedTheory
+  val reflectedContext: ReflectedContext
 
   case class Result(proof: theory.Proof, expression: Expr)
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
@@ -50,7 +51,8 @@ trait Assistant
 }
 
 object Assistant {
-  def fromAssistedTheory(thry: AssistedTheory): Assistant { val theory: thry.type } = new Assistant {
+  def apply(thry: AssistedTheory, ctx: ReflectedContext): Assistant { val theory: thry.type } = new Assistant {
     override val theory: thry.type = thry
+    override val reflectedContext: ReflectedContext = ctx
   }
 }

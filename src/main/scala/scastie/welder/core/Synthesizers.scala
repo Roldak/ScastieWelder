@@ -10,34 +10,43 @@ trait Synthesizers { self: Assistant =>
   import ScalaAST._
   import ScalaAST.Implicits._
 
+  class SynthesisError(val msg: String) extends RuntimeException(msg)
+
+  private object Reflected {
+    def unapply(t: Any): Option[String] = reflectedContext.get(t)
+  }
+
   private def synthesizeValDef(vd: trees.ValDef): ScalaAST = (synthesizeType(vd.tpe) `.` "::")(vd.id.name)
 
   private def synthesizeType(tpe: Type): ScalaAST = tpe match {
-    case TypeParameter(id, flags) => Raw(id.name)
-    case FunctionType(from, to)   => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
-    case ADTType(id, tps)         => Raw(id.name)(tps map synthesizeType)
-    case _                        => tpe.toString
+    case Reflected(path)             => Raw(path)
+    case TypeParameter(id, _)        => throw new SynthesisError(s"Could not synthesize type parameter ${id.name}")
+    case FunctionType(from, to)      => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
+    case ADTType(Reflected(id), tps) => Raw("T")(Raw(id))(tps map synthesizeType)
+    case _                           => throw new SynthesisError(s"Could not synthesize type ${tpe}")
   }
 
   private def synthesizeExpr(expr: Expr): ScalaAST = {
     def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
 
     expr match {
-      case Variable(id, tpe, flags)          => Raw(id.name)
-      case Forall(vds, body)                 => Raw("forall")(vds map synthesizeValDef)(Lambda(vds map (_.id.name), synthesizeExpr(body)))
-      case Implies(hyp, concl)               => synthesizeInfixOp(hyp, "==>", concl)
-      case Equals(lhs, rhs)                  => synthesizeInfixOp(lhs, "===", rhs)
-      case And(Seq(lhs, rhs))                => synthesizeInfixOp(lhs, "&&", rhs)
-      case And(exprs)                        => Raw("And")(exprs map synthesizeExpr)
-      case Or(Seq(lhs, rhs))                 => synthesizeInfixOp(lhs, "||", rhs)
-      case Or(exprs)                         => Raw("Or")(exprs map synthesizeExpr)
-      case Application(callee, args)         => synthesizeExpr(callee)(args map synthesizeExpr)
-      case FunctionInvocation(id, tps, args) => Raw(id.name)(tps map synthesizeType)(args map synthesizeExpr)
-      case _                                 => expr.toString
+      case Reflected(path) => Raw(path)
+      case Variable(id, tpe, flags) => Raw(id.name)
+      case Forall(vds, body) => Raw("forall")(vds map synthesizeValDef)(Lambda(vds map (_.id.name), synthesizeExpr(body)))
+      case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)
+      case Equals(lhs, rhs) => synthesizeInfixOp(lhs, "===", rhs)
+      case And(Seq(lhs, rhs)) => synthesizeInfixOp(lhs, "&&", rhs)
+      case And(exprs) => Raw("And")(exprs map synthesizeExpr)
+      case Or(Seq(lhs, rhs)) => synthesizeInfixOp(lhs, "||", rhs)
+      case Or(exprs) => Raw("Or")(exprs map synthesizeExpr)
+      case Application(callee, args) => synthesizeExpr(callee)(args map synthesizeExpr)
+      case FunctionInvocation(Reflected(id), tps, args) => Raw("E")(Raw(id))(tps map synthesizeType)(args map synthesizeExpr)
+      case _ => throw new SynthesisError(s"Could not synthesize expression ${expr}")
     }
   }
 
   private def synthesizeProof(proof: Proof): ScalaAST = proof match {
+    case Reflected(path)             => Raw(path)
     case Var(id)                     => Raw(id)
     case Axiom(theorem)              => ???
     case ImplI(id, hyp, concl)       => Raw("implI")(synthesizeExpr(hyp))(Lambda(Seq(id), synthesizeProof(concl)))

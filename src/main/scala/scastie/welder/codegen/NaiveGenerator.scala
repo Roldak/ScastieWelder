@@ -34,8 +34,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
     val parsed = res.parse[Stat]
     
     parsed match {
-      case Parsed.Success(tree) =>
-        println(s"$tree, ${tree.structure}, ${tree.syntax}")
+      case Parsed.Success(tree) => println(tree)
       case _ =>
     }
     
