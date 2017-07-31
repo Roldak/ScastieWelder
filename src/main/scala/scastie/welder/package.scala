@@ -7,7 +7,7 @@ import inox._
 import inox.trees._
 
 package object welder {
-  trait AssistedTheory extends Theory with Proofs {
+  trait AssistedTheory extends Theory with Deconstructions with Proofs {
     import scala.language.experimental.macros
     def suggest(expr: Expr): Attempt[Theorem] = macro Macros.suggest
   }

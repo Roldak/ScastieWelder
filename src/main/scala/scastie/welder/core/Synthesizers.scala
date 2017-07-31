@@ -42,6 +42,7 @@ trait Synthesizers { self: Assistant =>
       case Or(exprs) => Raw("Or")(exprs map synthesizeExpr)
       case Application(callee, args) => synthesizeExpr(callee)(args map synthesizeExpr)
       case FunctionInvocation(Reflected(id), tps, args) => Raw("E")(Raw(id))(tps map synthesizeType)(args map synthesizeExpr)
+      case ADT(adt, args) => synthesizeType(adt)(args map synthesizeExpr)
       case _ => throw new SynthesisError(s"Could not synthesize expression ${expr}")
     }
   }
@@ -55,7 +56,7 @@ trait Synthesizers { self: Assistant =>
     case ForallI(v, body)            => Raw("forallI")(synthesizeValDef(v))(Lambda(Seq(v.id.name), synthesizeProof(body)))
     case ForallE(quantified, value)  => Raw("forallE")(synthesizeProof(quantified))(synthesizeExpr(value))
     case AndI(proofs)                => Raw("andI")(proofs map synthesizeProof)
-    case AndE(cunj, parts, body)     => Block(Seq(ValDef(Unapply("", parts), Raw("andE")(synthesizeProof(cunj))), synthesizeProof(body)))
+    case AndE(cunj, parts, body)     => Block(Seq(ValDef(Unapply(Raw(""), parts), Raw("andE")(synthesizeProof(cunj))), synthesizeProof(body)))
     case OrI(alternatives, thm)      => Raw("orI")(alternatives map synthesizeExpr)(Lambda(Seq("goal"), (Raw("goal") `.` "by")(synthesizeProof(thm))))
     case OrE(disj, concl, id, cases) => ???
     case Prove(expr, hyps)           => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
@@ -89,10 +90,21 @@ trait Synthesizers { self: Assistant =>
           Raw("forallI")(synthesizeValDef(v))(Lambda(Seq(v.id.name), suggest(Forall(vs, body))))
       }
 
-      case StructuralInduction => expr match {
-        case Forall(Seq(v), body)  => ???
-        case Forall(v +: vs, body) => ???
-      }
+      case StructuralInduction =>
+        val (v, body) = expr match {
+          case Forall(Seq(v), body)  => (v, body)
+          case Forall(v +: vs, body) => (v, Forall(vs, body))
+        }
+
+        val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
+          case (Reflected(constrId), expr, vars) => Case(
+            Unapply(Raw("C"), "constr" +: (vars map (_.id.name))),
+            Some((Raw("constr") `.` "==")(Raw(constrId))),
+            suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
+        }
+
+        Raw("structuralInduction")(Lambda(Seq(ValDecl(v.id.name, Some(Raw("Expr")))), synthesizeExpr(body)), synthesizeValDef(v))(
+          Lambda(Seq("goal", "ihs"), Match(Raw("ihs") `.` "expression", cases)))
 
       case AssumeHypothesis => expr match {
         case Implies(hyp, body) =>

@@ -40,7 +40,7 @@ trait Assistant
       Seq((s"Split cases", FixVariable))
 
     case Forall(v :: vds, body) =>
-      Seq((s"Fix variable ${v.id.name}", FixVariable))
+      analyseForall(v, body)
 
     case Implies(hyp, body) =>
       Seq((s"Assume hypothesis", AssumeHypothesis))

@@ -14,9 +14,12 @@ object ScalaAST {
   
   sealed abstract class Pattern
   case class ValDecl(id: String, tpe: Option[ScalaAST]) extends Pattern
-  case class Unapply(extractor: String, subpatterns: Seq[Pattern]) extends Pattern
+  case class Unapply(extractor: ScalaAST, subpatterns: Seq[Pattern]) extends Pattern
+  
+  case class Case(pattern: Pattern, guard: Option[ScalaAST], body: ScalaAST)
   
   case class ValDef(decl: Pattern, rhs: ScalaAST) extends ScalaAST
+  case class Match(selector: ScalaAST, cases: Seq[Case]) extends ScalaAST
   case class Lambda(params: Seq[Pattern], body: ScalaAST) extends ScalaAST
   case class Tuple(elems: Seq[ScalaAST]) extends ScalaAST
 
