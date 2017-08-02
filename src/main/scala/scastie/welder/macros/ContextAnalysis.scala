@@ -1,6 +1,7 @@
 package scastie.welder.macros
 
 import scala.reflect.macros.blackbox.Context
+import scala.reflect.macros.TypecheckException
 
 trait ContextAnalysis { self: Macros =>
   val c: Context
@@ -75,7 +76,7 @@ trait ContextAnalysis { self: Macros =>
     def proof: Tree
     def rhs: Tree
   }
-  
+
   protected[macros] object OpChainSegment {
     def unapply(x: OpChainSegment): Option[(Tree, Tree, Tree)] = Some((x.lhs, x.proof, x.rhs))
   }
@@ -85,7 +86,7 @@ trait ContextAnalysis { self: Macros =>
       case OpChainNode(prev, next) => prev.leftMost
       case leaf: OpChainLeaf       => leaf
     }
-    
+
     def rightMost: OpChainLeaf = this match {
       case OpChainNode(prev, next) => next.rightMost
       case leaf: OpChainLeaf       => leaf
@@ -105,6 +106,8 @@ trait ContextAnalysis { self: Macros =>
     override def proof = root.rightMost.proof
     override def rhs = expr
   }
+
+  private val InoxExprType = typeOf[inox.trees.Expr]
 
   protected[macros] object TreeExtractors {
     object Tree {
@@ -131,8 +134,17 @@ trait ContextAnalysis { self: Macros =>
 
     object Chain {
       def unapply(t: Tree): Option[OpChain] = t match {
-        case q"${ Tree(root) }.|($expr)" => Some(OpChain(root, expr))
-        case _                           => None
+        case q"${ Tree(root) }.|(${ Typed(expr, tpe) })" if tpe <:< InoxExprType => Some(OpChain(root, expr))
+        case _ => None
+      }
+    }
+
+    object Typed {
+      def unapply(t: Tree): Option[(Tree, Type)] = try {
+        val tpe = if (t.tpe != null) t.tpe else c.typecheck(t, c.TERMmode, WildcardType, false, false, true).tpe
+        Some((t, tpe))
+      } catch {
+        case ex: TypecheckException => None
       }
     }
   }
@@ -145,11 +157,17 @@ trait ContextAnalysis { self: Macros =>
   } get
 
   protected[macros] lazy val enclosingOpSegment: OpChainSegment = {
-    def traverse(optree: OpChainTree): Option[OpChainNode] = optree match {
-      case node @ OpChainNode(OpChainLeaf(_, proof), next) if proof.pos == c.macroApplication.pos => Some(node)
-      case OpChainNode(prev, next) => traverse(prev) orElse traverse(next)
+    def findMacroLeaf(optree: OpChainTree): Option[OpChainLeaf] = optree match {
+      case leaf @ OpChainLeaf(_, proof) if proof.pos == c.macroApplication.pos => Some(leaf)
+      case OpChainNode(prev, next) => findMacroLeaf(prev) orElse findMacroLeaf(next)
       case _ => None
     }
+
+    def traverse(optree: OpChainTree): Option[OpChainNode] = optree match {
+      case node @ OpChainNode(prev, next) => traverse(prev) orElse traverse(next) orElse { findMacroLeaf(prev) map (_ => node) }
+      case _                              => None
+    }
+
     traverse(enclosingOpChain.root) getOrElse enclosingOpChain
   }
 }

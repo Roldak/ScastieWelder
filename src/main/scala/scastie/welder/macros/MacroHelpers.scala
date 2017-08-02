@@ -7,7 +7,9 @@ trait MacroHelpers {
 
   import c.universe._
 
-  object IOTraverser {
+  protected[macros] def typeOfTypeTree(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
+  
+  protected[macros] object IOTraverser {
     trait Actionner[T, U] {
       def one(tree: Tree, input: T): U
       def some(trees: Seq[Tree], input: T)(implicit merge: Seq[U] => U): U

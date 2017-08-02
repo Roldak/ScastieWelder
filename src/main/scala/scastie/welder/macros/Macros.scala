@@ -12,8 +12,6 @@ class Macros(val c: Context)
 
   private val preludeOffset = 354 // hardcoded for now
 
-  private def typeOf(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
-
   def suggest(expr: Tree): Tree = {
     val Apply(receiver, _) = c.macroApplication
 
