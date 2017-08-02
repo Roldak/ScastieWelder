@@ -50,7 +50,7 @@ class Macros(val c: Context)
   def suggestInline: Tree = {
     //println("PATH: " + (pathToMacro map (_.getClass.getSimpleName)))
     enclosingOpSegment match {
-      case OpChainSegment(lhs, proof, rhs) => println(s"$enclosingOpChain   =>    Segment($lhs, $proof, $rhs)")
+      case OpChainSegment(lhs, op, rhs, proof) => println(s"$enclosingOpChain   =>    Segment($lhs, $op, $proof, $rhs)")
     }
     q"trivial"
   }

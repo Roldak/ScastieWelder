@@ -71,23 +71,42 @@ trait ContextAnalysis { self: Macros =>
     }.flatten.toSet
   }
 
+  protected[macros] sealed abstract class Rel
+  protected[macros] object Rel {
+    def unapply(t: TermName): Option[Rel] = t.decoded match {
+      case "<=|" => Some(LE)
+      case "<<|" => Some(LT)
+      case "==|" => Some(EQ)
+      case ">>|" => Some(GT)
+      case ">=|" => Some(GE)
+      case _     => None
+    }
+
+    case object LE extends Rel
+    case object LT extends Rel
+    case object EQ extends Rel
+    case object GT extends Rel
+    case object GE extends Rel
+  }
+
   protected[macros] trait OpChainSegment {
     def lhs: Tree
-    def proof: Tree
+    def op: Rel
     def rhs: Tree
+    def proof: Tree
   }
 
   protected[macros] object OpChainSegment {
-    def unapply(x: OpChainSegment): Option[(Tree, Tree, Tree)] = Some((x.lhs, x.proof, x.rhs))
+    def unapply(x: OpChainSegment): Option[(Tree, Rel, Tree, Tree)] = Some((x.lhs, x.op, x.rhs, x.proof))
   }
 
   protected[macros] sealed abstract class OpChainTree {
-    def leftMost: OpChainLeaf = this match {
+    final def leftMost: OpChainLeaf = this match {
       case OpChainNode(prev, next) => prev.leftMost
       case leaf: OpChainLeaf       => leaf
     }
 
-    def rightMost: OpChainLeaf = this match {
+    final def rightMost: OpChainLeaf = this match {
       case OpChainNode(prev, next) => next.rightMost
       case leaf: OpChainLeaf       => leaf
     }
@@ -95,16 +114,18 @@ trait ContextAnalysis { self: Macros =>
 
   protected[macros] case class OpChainNode(prev: OpChainTree, next: OpChainTree) extends OpChainTree with OpChainSegment {
     override def lhs = prev.rightMost.expr
-    override def proof = prev.rightMost.proof
+    override def op = prev.rightMost.op
     override def rhs = next.leftMost.expr
+    override def proof = prev.rightMost.proof
   }
 
-  protected[macros] case class OpChainLeaf(expr: Tree, proof: Tree) extends OpChainTree
+  protected[macros] case class OpChainLeaf(expr: Tree, op: Rel, proof: Tree) extends OpChainTree
 
   protected[macros] case class OpChain(root: OpChainTree, expr: Tree) extends OpChainSegment {
     override def lhs = root.rightMost.expr
-    override def proof = root.rightMost.proof
+    override def op = root.rightMost.op
     override def rhs = expr
+    override def proof = root.rightMost.proof
   }
 
   private val InoxExprType = typeOf[inox.trees.Expr]
@@ -120,8 +141,8 @@ trait ContextAnalysis { self: Macros =>
 
     object Leaf {
       def unapply(t: Tree): Option[OpChainLeaf] = t match {
-        case q"$expr.==|($proof)" => Some(OpChainLeaf(expr, proof))
-        case _                    => None
+        case q"$expr.${ Rel(op) }($proof)" => Some(OpChainLeaf(expr, op, proof))
+        case _                             => None
       }
     }
 
@@ -158,7 +179,7 @@ trait ContextAnalysis { self: Macros =>
 
   protected[macros] lazy val enclosingOpSegment: OpChainSegment = {
     def findMacroLeaf(optree: OpChainTree): Option[OpChainLeaf] = optree match {
-      case leaf @ OpChainLeaf(_, proof) if proof.pos == c.macroApplication.pos => Some(leaf)
+      case leaf @ OpChainLeaf(_, _, proof) if proof.pos == c.macroApplication.pos => Some(leaf)
       case OpChainNode(prev, next) => findMacroLeaf(prev) orElse findMacroLeaf(next)
       case _ => None
     }
