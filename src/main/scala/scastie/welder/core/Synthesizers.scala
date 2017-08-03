@@ -29,7 +29,7 @@ trait Synthesizers { self: Assistant =>
 
   private def synthesizeExpr(expr: Expr): ScalaAST = {
     def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
-
+    
     expr match {
       case Reflected(path) => Raw(path)
       case Variable(id, tpe, flags) => Raw(id.name)
@@ -43,7 +43,11 @@ trait Synthesizers { self: Assistant =>
       case Application(callee, args) => synthesizeExpr(callee)(args map synthesizeExpr)
       case FunctionInvocation(Reflected(id), tps, args) => Raw("E")(Raw(id))(tps map synthesizeType)(args map synthesizeExpr)
       case ADT(adt, args) => synthesizeType(adt)(args map synthesizeExpr)
-      case _ => throw new SynthesisError(s"Could not synthesize expression ${expr}")
+      case ADTSelector(adt, Reflected(sel)) => (synthesizeExpr(adt) `.` "getField")(Raw(sel))
+      case IfExpr(cond, then, elz) => Raw("ite")(synthesizeExpr(cond), synthesizeExpr(then), synthesizeExpr(elz))
+      case IsInstanceOf(expr, tpe) => (synthesizeExpr(expr) `.` "isInstOf")(synthesizeType(tpe))
+      case AsInstanceOf(expr, tpe) => (synthesizeExpr(expr) `.` "asInstOf")(synthesizeType(tpe))
+      case _ => throw new SynthesisError(s"Could not synthesize expression ${expr} (${expr.getClass})")
     }
   }
 
@@ -63,13 +67,11 @@ trait Synthesizers { self: Assistant =>
     case Let(named, id, body)        => Block(Seq(ValDef(id, synthesizeProof(named)), synthesizeProof(body)))
   }
 
-  def synthesize(expr: Expr, sugg: Suggestion): ScalaAST = {
+  def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion): ScalaAST = {
     def suggest(expr: Expr): ScalaAST = Raw("suggest")(synthesizeExpr(expr))
+    def inlineSuggest: ScalaAST = Raw("suggest")
 
     sugg match {
-      case RewriteSuggestion(_, res, proof) =>
-        (((synthesizeExpr(expr) `.` "==|")(synthesizeProof(proof.proof))) `.` "|")(suggest(res))
-
       case NegateTwice => expr match {
         case Not(Not(body)) => Raw("notE")(suggest(body))
       }
@@ -110,6 +112,19 @@ trait Synthesizers { self: Assistant =>
         case Implies(hyp, body) =>
           Raw("implI")(synthesizeExpr(hyp))(Function(Seq("thm"), suggest(body)))
       }
+
+      case ToChain => expr match {
+        case Equals(lhs, rhs) => ((synthesizeExpr(lhs) `.` "==|")(inlineSuggest) `.` "|")(synthesizeExpr(rhs))
+      }
+    }
+  }
+
+  def synthesizeInner(sugg: InnerSuggestion): (ScalaAST, ScalaAST, ScalaAST) = {
+    def inlineSuggest: ScalaAST = Raw("suggest")
+    
+    sugg match {
+      case RewriteSuggestion(_, res, proof) =>
+        (synthesizeExpr(res), synthesizeProof(proof.proof), inlineSuggest)
     }
   }
 }

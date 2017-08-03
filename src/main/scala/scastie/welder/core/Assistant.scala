@@ -20,19 +20,41 @@ trait Assistant
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
 
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
-  
+
   def suggest(expr: Expr): Seq[SynthesizedSuggestion] = {
     val codeGen = new NaiveGenerator
-    
+
     suggestTopLevel(expr) flatMap {
-      sugg => util.Try(synthesize(expr, sugg._2)) map (synthed => SynthesizedSuggestion(sugg._1, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
-        case util.Success(synthsugg) => Some(synthsugg)
-        case util.Failure(error) => println(error); None
-      }
+      case (name, sugg) =>
+        util.Try(synthesizeTopLevel(expr, sugg)) map (synthed => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
+          case util.Success(synthsugg) => Some(synthsugg)
+          case util.Failure(error)     => println(error); None
+        }
     }
   }
 
-  private def suggestTopLevel(expr: Expr): Seq[NamedSuggestion] = expr match {
+  type ASTContext = (ScalaAST, ScalaAST, ScalaAST) => ScalaAST
+
+  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext): Seq[SynthesizedSuggestion] = {
+    val codeGen = new NaiveGenerator
+
+    val lhsSuggs = analyse(lhs, Map.empty, Map.empty)._1 map { case (name, sugg) => (name, contextForLHS, sugg) }
+    val rhsSuggs = analyse(rhs, Map.empty, Map.empty)._1 map { case (name, sugg) => (name, contextForRHS, sugg) }
+
+    val sidedSuggs = lhsSuggs ++ rhsSuggs
+
+    sidedSuggs flatMap {
+      case (name, ctx, sugg) =>
+        util.Try(synthesizeInner(sugg)) map {
+          case (res, proof, sugg) => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(ctx(res, proof, sugg))))
+        } match {
+          case util.Success(synthsugg) => Some(synthsugg)
+          case util.Failure(error)     => println(error); None
+        }
+    }
+  }
+
+  private def suggestTopLevel(expr: Expr): Seq[NamedTopLevelSuggestion] = expr match {
     case Not(Not(e)) =>
       Seq((s"Negate twice", NegateTwice))
 
@@ -45,11 +67,10 @@ trait Assistant
     case Implies(hyp, body) =>
       Seq((s"Assume hypothesis", AssumeHypothesis))
 
-    case _ => suggestInner(expr)
-  }
+    case _: LessThan | _: LessEquals | _: Equals | _: GreaterEquals | _: GreaterThan =>
+      Seq((s"Chain", ToChain))
 
-  private def suggestInner(expr: Expr): Seq[NamedSuggestion] = {
-    analyse(expr, Map.empty, Map.empty)._1
+    case _ => Seq()
   }
 }
 

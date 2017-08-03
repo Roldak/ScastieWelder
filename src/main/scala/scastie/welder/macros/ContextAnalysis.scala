@@ -71,9 +71,18 @@ trait ContextAnalysis { self: Macros =>
     }.flatten.toSet
   }
 
-  protected[macros] sealed abstract class Rel
-  protected[macros] object Rel {
-    def unapply(t: TermName): Option[Rel] = t.decoded match {
+  protected[macros] sealed abstract class Rel {
+    override def toString: String = this match {
+      case Rel.LE => "<=|"
+      case Rel.LT => "<<|"
+      case Rel.EQ => "==|"
+      case Rel.GT => ">>|"
+      case Rel.GE => ">=|"
+    }
+  }
+  
+  protected[macros] object Rel {    
+    def unapply(t: TermName): Option[Rel] = t.decodedName.toString match {
       case "<=|" => Some(LE)
       case "<<|" => Some(LT)
       case "==|" => Some(EQ)
@@ -82,6 +91,14 @@ trait ContextAnalysis { self: Macros =>
       case _     => None
     }
 
+    implicit val relLifter: Liftable[Rel] = Liftable[Rel] {
+      case Rel.LE => q"${c.prefix}.relations.LE"
+      case Rel.LT => q"${c.prefix}.relations.LT"
+      case Rel.EQ => q"${c.prefix}.relations.EQ"
+      case Rel.GT => q"${c.prefix}.relations.GT"
+      case Rel.GE => q"${c.prefix}.relations.GE"
+    }
+    
     case object LE extends Rel
     case object LT extends Rel
     case object EQ extends Rel
@@ -126,6 +143,8 @@ trait ContextAnalysis { self: Macros =>
     override def op = root.rightMost.op
     override def rhs = expr
     override def proof = root.rightMost.proof
+    
+    def pos: (Int, Int) = (root.leftMost.expr.pos.start, expr.pos.end)
   }
 
   private val InoxExprType = typeOf[inox.trees.Expr]

@@ -330,7 +330,7 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
    * Given a root expression expr and a collection of theorems thms,
    * finds all possible applications of any theorem in thms on any subexpression of expr
    */
-  private def findTheoremApplications(expr: Expr, thms: Map[String, Result]): Seq[NamedSuggestion] = {
+  private def findTheoremApplications(expr: Expr, thms: Map[String, Result]): Seq[NamedInnerSuggestion] = {
     thms.toSeq flatMap {
       case (name, thm) =>
         instantiateConclusion(expr, thm, thms.values.toSeq) map {
@@ -342,7 +342,7 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
   /*
    * Collect function calls in the expression and generates suggestion for expanding them (using partial evaluation)
    */
-  private def collectInvocations(e: Expr): Seq[NamedSuggestion] = functionCallsOf(e).flatMap { inv =>
+  private def collectInvocations(e: Expr): Seq[NamedInnerSuggestion] = functionCallsOf(e).flatMap { inv =>
     PartialEvaluator.default(program, Some(inv)).eval(e) match {
       case Successful(ev) => Seq((s"Expand invocation of '${inv.id}'", RewriteSuggestion(inv, ev, Rules.prove(e === ev))))
       case _              => Nil
@@ -372,7 +372,7 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
   /*
    * Generates all suggestions by analyzing the given root expression and the theorems/IHS that are available.
    */
-  protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): (Seq[NamedSuggestion], Map[String, Result]) = {
+  protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): (Seq[NamedInnerSuggestion], Map[String, Result]) = {
     val findInduct = findInductiveHypothesisApplication(e, ihses)
     val newThms = thms ++ findInduct
     (collectInvocations(e) ++ findTheoremApplications(e, newThms), newThms)
@@ -382,9 +382,9 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
    * Generates suggestions to eliminate a forall.
    * (Either fix the variable, or if its type is inductive, suggest structural induction)
    */
-  protected[core] def analyseForall(v: ValDef, body: Expr): Seq[NamedSuggestion] = {
+  protected[core] def analyseForall(v: ValDef, body: Expr): Seq[NamedTopLevelSuggestion] = {
     import Utils._
-
+    
     val structInd = asADTType(v.tpe)
       .flatMap(_.lookupADT.flatMap(_.definition.isInductive.toOption(Seq((s"Structural induction on '${v.id}'", StructuralInduction))))) // sorry
       .getOrElse(Nil)

@@ -26,10 +26,8 @@ object ScalaAST {
 
   object Implicits {
     implicit class Api(val ast: ScalaAST) extends AnyVal {
-      def apply(arg0: ScalaAST): ScalaAST = Apply(ast, Seq(arg0))
-      def apply(arg0: ScalaAST, arg1: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1))
-      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1, arg2))
-      def apply(arg0: ScalaAST, arg1: ScalaAST, arg2: ScalaAST, arg3: ScalaAST): ScalaAST = Apply(ast, Seq(arg0, arg1, arg2, arg3))
+      def apply(): ScalaAST = Apply(ast, Seq())
+      def apply(arg0: ScalaAST, args: ScalaAST*): ScalaAST = Apply(ast, arg0 +: args)
       def apply(args: Seq[ScalaAST]): ScalaAST = Apply(ast, args)
 
       def `.`(member: String): ScalaAST = Select(ast, member)
