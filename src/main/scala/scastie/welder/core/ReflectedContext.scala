@@ -14,4 +14,6 @@ class ReflectedContext(private val values: Map[String, Any]) {
   def get(value: Any)(orElse: => String): String = inversedValues.getOrElse(value, orElse)
   
   def existsPath(path: String): Boolean = values.isDefinedAt(path)
+  
+  def collect[T](pf: PartialFunction[(String, Any), T]): Iterable[T] = values.collect(pf) 
 }

@@ -30,12 +30,13 @@ class Macros(val c: Context)
 
     println(values)
 
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx).suggest(expr)"""
+    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx, codeGen).suggest(expr)"""
 
     q"""
 	    {
 	      import com.olegych.scastie.api._
 	      val reflCtx = new scastie.welder.core.ReflectedContext(${values})
+	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val expr = $expr
         val str = "<h1>Select suggestion to apply</h1>" + $call.map { case scastie.welder.core.SynthesizedSuggestion(name, replacement) =>
           "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button><br>"
@@ -110,7 +111,7 @@ class Macros(val c: Context)
     val OpChainSegment(lhs, op, rhs, proof) = enclosingOpSegment
     println(s"$enclosingOpChain   =>    Segment($lhs, $op, $proof, $rhs)")
 
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)"""
+    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)"""
 
     val chainStart = enclosingOpChain.pos._1
     val chainEnd = enclosingOpChain.pos._2
@@ -119,6 +120,7 @@ class Macros(val c: Context)
 	    ({
 	      import com.olegych.scastie.api._  
 	      val reflCtx = new scastie.welder.core.ReflectedContext(${values})
+	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val (lhs, op, rhs) = ($lhs, $op, $rhs)
 	      
 	      ..$prelude

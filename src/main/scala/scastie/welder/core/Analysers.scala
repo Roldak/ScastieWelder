@@ -372,10 +372,10 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
   /*
    * Generates all suggestions by analyzing the given root expression and the theorems/IHS that are available.
    */
-  protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): (Seq[NamedInnerSuggestion], Map[String, Result]) = {
+  protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): Seq[NamedInnerSuggestion] = {
     val findInduct = findInductiveHypothesisApplication(e, ihses)
     val newThms = thms ++ findInduct
-    (collectInvocations(e) ++ findTheoremApplications(e, newThms), newThms)
+    collectInvocations(e) ++ findTheoremApplications(e, newThms)
   }
 
   /*

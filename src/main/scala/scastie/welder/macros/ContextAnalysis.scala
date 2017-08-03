@@ -54,6 +54,7 @@ trait ContextAnalysis { self: Macros =>
         val output = tree match {
           case Template(_, self, body)         => rec.some(body, input.next(false)) ++ ValOrDefDefCollector(tree)
           case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, input.next(true)) ++ params.flatten
+          case Function(params, body)          => rec.one(body, input.next(true)) ++ params
           case CaseDef(pat, _, body)           => rec.one(body, input.next) ++ collectBinds(pat)
           case _                               => rec.children(tree, input.next)
         }
@@ -80,8 +81,8 @@ trait ContextAnalysis { self: Macros =>
       case Rel.GE => ">=|"
     }
   }
-  
-  protected[macros] object Rel {    
+
+  protected[macros] object Rel {
     def unapply(t: TermName): Option[Rel] = t.decodedName.toString match {
       case "<=|" => Some(LE)
       case "<<|" => Some(LT)
@@ -98,7 +99,7 @@ trait ContextAnalysis { self: Macros =>
       case Rel.GT => q"${c.prefix}.relations.GT"
       case Rel.GE => q"${c.prefix}.relations.GE"
     }
-    
+
     case object LE extends Rel
     case object LT extends Rel
     case object EQ extends Rel
@@ -143,7 +144,7 @@ trait ContextAnalysis { self: Macros =>
     override def op = root.rightMost.op
     override def rhs = expr
     override def proof = root.rightMost.proof
-    
+
     def pos: (Int, Int) = (root.leftMost.expr.pos.start, expr.pos.end)
   }
 
