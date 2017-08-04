@@ -29,7 +29,7 @@ trait Synthesizers { self: Assistant =>
 
   private def synthesizeExpr(expr: Expr): ScalaAST = {
     def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
-    
+
     expr match {
       case Reflected(path) => Raw(path)
       case Variable(id, tpe, flags) => Raw(id.name)
@@ -60,7 +60,7 @@ trait Synthesizers { self: Assistant =>
     case ForallI(v, body)            => Raw("forallI")(synthesizeValDef(v))(Function(Seq(v.id.name), synthesizeProof(body)))
     case ForallE(quantified, value)  => Raw("forallE")(synthesizeProof(quantified))(synthesizeExpr(value))
     case AndI(proofs)                => Raw("andI")(proofs map synthesizeProof)
-    case AndE(cunj, parts, body)     => Block(Seq(ValDef(Unapply(Raw(""), parts), Ascript(Raw("andE")(synthesizeProof(cunj)), Raw("Seq[Theorem]"))), synthesizeProof(body)))
+    case AndE(cunj, parts, body)     => Block(Seq(ValDef(Unapply(Raw("Seq"), parts), Ascript(Raw("andE")(synthesizeProof(cunj)), Raw("Seq[Theorem]"))), synthesizeProof(body)))
     case OrI(alternatives, thm)      => Raw("orI")(alternatives map synthesizeExpr)(Function(Seq("goal"), (Raw("goal") `.` "by")(synthesizeProof(thm))))
     case OrE(disj, concl, id, cases) => ???
     case Prove(expr, hyps)           => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
@@ -121,7 +121,7 @@ trait Synthesizers { self: Assistant =>
 
   def synthesizeInner(sugg: InnerSuggestion): (ScalaAST, ScalaAST, ScalaAST) = {
     def inlineSuggest: ScalaAST = Raw("suggest")
-    
+
     sugg match {
       case RewriteSuggestion(_, res, proof) =>
         (synthesizeExpr(res), synthesizeProof(proof.proof), inlineSuggest)

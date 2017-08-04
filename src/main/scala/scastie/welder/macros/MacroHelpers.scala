@@ -8,7 +8,7 @@ trait MacroHelpers {
   import c.universe._
 
   protected[macros] def typeOfTypeTree(tree: Tree): Type = c.typecheck(tree, c.TYPEmode).tpe
-  
+
   protected[macros] object IOTraverser {
     trait Actionner[T, U] {
       def one(tree: Tree, input: T): U

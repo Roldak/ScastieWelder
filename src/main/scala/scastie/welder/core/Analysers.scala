@@ -92,26 +92,28 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
    * Represents a chain of elimination rules
    */
   private sealed abstract class Path
-  private case class PNotE(next: Path) extends Path
-  private case class PAndE(clauseIndex: Int, next: Path) extends Path
-  private case class PForallE(vals: Seq[ValDef], next: Path) extends Path
-  private case class PImplE(assumption: Expr, next: Path) extends Path
-  private case object PEndOfPath extends Path
+  private object Path {
+    case class NotE(next: Path) extends Path
+    case class AndE(clauseIndex: Int, next: Path) extends Path
+    case class ForallE(vals: Seq[ValDef], next: Path) extends Path
+    case class ImplE(assumption: Expr, next: Path) extends Path
+    case object EndOfPath extends Path
+  }
 
   /*
    * Represents one conclusion of a theorem.
    * See "conclusionsOf" for details.
    */
   private case class Conclusion(expr: Expr, freeVars: Set[Variable], premises: Seq[Expr], path: Path) {
-    def notE = Conclusion(expr, freeVars, premises, PNotE(path))
-    def andE(index: Int) = Conclusion(expr, freeVars, premises, PAndE(index, path))
+    def notE = Conclusion(expr, freeVars, premises, Path.NotE(path))
+    def andE(index: Int) = Conclusion(expr, freeVars, premises, Path.AndE(index, path))
     def forallE(vals: Seq[ValDef]) = {
       val freshVals = vals map (_.freshen)
       val freshVars = freshVals map (_.toVariable)
       val subst = vals.map(_.toVariable).zip(freshVars).toMap
-      Conclusion(replaceFromSymbols(subst, expr), freeVars ++ freshVars, premises map (replaceFromSymbols(subst, _)), PForallE(freshVals, path))
+      Conclusion(replaceFromSymbols(subst, expr), freeVars ++ freshVars, premises map (replaceFromSymbols(subst, _)), Path.ForallE(freshVals, path))
     }
-    def implE(assumption: Expr) = Conclusion(expr, freeVars, premises :+ assumption, PImplE(assumption, path))
+    def implE(assumption: Expr) = Conclusion(expr, freeVars, premises :+ assumption, Path.ImplE(assumption, path))
   }
 
   /*
@@ -148,7 +150,7 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
       case _ => Nil
     }
 
-    paths :+ Conclusion(thm, Set.empty, Nil, PEndOfPath)
+    paths :+ Conclusion(thm, Set.empty, Nil, Path.EndOfPath)
   }
 
   var analysisTimer: Long = 0
@@ -233,10 +235,10 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
    */
   private def followPath(thm: Result, path: Path, subst: Substitution, instPrems: Seq[Result]): Result = path match {
     //case NotE(next)              => followPath(notE(thm), next, subst, instPrems)
-    case PAndE(i, next)           => Rules.andESelect(thm, i) (followPath(_, next, subst, instPrems))
-    case PForallE(vals, next)     => followPath(Rules.forallE(thm, vals map (_.toVariable) map subst), next, subst, instPrems)
-    case PImplE(assumption, next) => followPath(Rules.implE(thm, instPrems.head), next, subst, instPrems.tail)
-    case PEndOfPath               => thm
+    case Path.AndE(i, next)           => Rules.andESelect(thm, i)(followPath(_, next, subst, instPrems))
+    case Path.ForallE(vals, next)     => followPath(Rules.forallE(thm, vals map (_.toVariable) map subst), next, subst, instPrems)
+    case Path.ImplE(assumption, next) => followPath(Rules.implE(thm, instPrems.head), next, subst, instPrems.tail)
+    case Path.EndOfPath               => thm
   }
 
   /*
@@ -384,7 +386,7 @@ protected[core] trait Analysers extends PathTreeOps { self: Assistant =>
    */
   protected[core] def analyseForall(v: ValDef, body: Expr): Seq[NamedTopLevelSuggestion] = {
     import Utils._
-    
+
     val structInd = asADTType(v.tpe)
       .flatMap(_.lookupADT.flatMap(_.definition.isInductive.toOption(Seq((s"Structural induction on '${v.id}'", StructuralInduction))))) // sorry
       .getOrElse(Nil)

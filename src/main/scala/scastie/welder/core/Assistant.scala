@@ -6,7 +6,7 @@ import inox.trees._
 import scastie.welder._
 import scastie.welder.codegen._
 
-case class SynthesizedSuggestion(val title: String, val code: String)
+case class SynthesizedSuggestion(title: String, code: String)
 
 trait Assistant
     extends Suggestions
@@ -23,7 +23,7 @@ trait Assistant
   private def resultExprOf(sugg: InnerSuggestion): Expr = sugg match {
     case RewriteSuggestion(_, res, _) => res
   }
-  
+
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
 
   def suggest(expr: Expr): Seq[SynthesizedSuggestion] = {
@@ -80,11 +80,11 @@ trait Assistant
           case util.Failure(error)     => println(error); None
         }
     }
-    
+
     val uniques = results.groupBy(_._1).mapValues(_.minBy(_._3.size)).toSeq.map {
       case (_, (_, name, code)) => SynthesizedSuggestion(name, code)
     }
-    
+
     uniques
   }
 

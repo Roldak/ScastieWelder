@@ -11,13 +11,13 @@ object ScalaAST {
   case class Apply(obj: ScalaAST, args: Seq[ScalaAST]) extends ScalaAST
   case class Block(stmts: Seq[ScalaAST]) extends ScalaAST
   case class Ascript(obj: ScalaAST, tpe: ScalaAST) extends ScalaAST
-  
+
   sealed abstract class Pattern
   case class ValDecl(id: String, tpe: Option[ScalaAST]) extends Pattern
   case class Unapply(extractor: ScalaAST, subpatterns: Seq[Pattern]) extends Pattern
-  
+
   case class Case(pattern: Pattern, guard: Option[ScalaAST], body: ScalaAST)
-  
+
   case class ValDef(decl: Pattern, rhs: ScalaAST) extends ScalaAST
   case class Match(selector: ScalaAST, cases: Seq[Case]) extends ScalaAST
   case class Function(params: Seq[ValDecl], body: ScalaAST) extends ScalaAST

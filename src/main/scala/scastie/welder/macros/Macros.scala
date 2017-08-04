@@ -74,13 +74,13 @@ class Macros(val c: Context)
 
         q"""($prevAST `.` "|")(${genChainTree(next)})"""
     }
-    
+
     def genChain(chain: OpChain)(implicit side: Int): Tree = {
       val rootAST = if (chain == enclosingOpSegment)
         q"""(${genChainTree(enclosingOpChain.root)} `.` "|")((res `.` "==|")(${proofOrSugg(1 - side)}))"""
-      else 
+      else
         genChainTree(enclosingOpChain.root)
-        
+
       q"""($rootAST `.` "|")(${copyOf(enclosingOpChain.expr)})"""
     }
 
@@ -122,7 +122,7 @@ class Macros(val c: Context)
 
     val chainStart = enclosingOpChain.pos.start - preludeOffset
     val chainEnd = enclosingOpChain.pos.end - preludeOffset
-    
+
     q"""
 	    ({
 	      import com.olegych.scastie.api._  

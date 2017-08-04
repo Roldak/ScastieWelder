@@ -94,7 +94,7 @@ trait PartialEvaluator
             val frame = rctx.withNewVars(tfd.paramSubst(evArgs)).newTypes(tps)
 
             e(tfd.fullBody)(frame, gctx)
-            
+
           case _ =>
             FunctionInvocation(id, tps, args map e)
         }
@@ -132,7 +132,7 @@ trait PartialEvaluator
 
       case Equals(le, re) => (e(le), e(re)) match {
         case (BooleanLiteral(ble), BooleanLiteral(bre)) => BooleanLiteral(ble == bre)
-        case (ele, ere) => Equals(ele, ere)
+        case (ele, ere)                                 => Equals(ele, ere)
       }
 
       case ADT(adt, args) =>
