@@ -20,6 +20,10 @@ trait Assistant
   case class Result(proof: theory.Proof, expression: Expr)
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
 
+  private def resultExprOf(sugg: InnerSuggestion): Expr = sugg match {
+    case RewriteSuggestion(_, res, _) => res
+  }
+  
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
 
   def suggest(expr: Expr): Seq[SynthesizedSuggestion] = {
@@ -67,15 +71,21 @@ trait Assistant
     val lhsSuggs = analyse(lhs, thms, ihses) map { case (name, sugg) => (name, contextForLHS, sugg) }
     val rhsSuggs = analyse(rhs, thms, ihses) map { case (name, sugg) => (name, contextForRHS, sugg) }
 
-    (lhsSuggs ++ rhsSuggs) flatMap {
+    val results = (lhsSuggs ++ rhsSuggs) flatMap {
       case (name, ctx, sugg) =>
         util.Try(synthesizeInner(sugg)) map {
-          case (res, proof, sugg) => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(ctx(res, proof, sugg))))
+          case (res, proof, recsugg) => (resultExprOf(sugg), name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
         } match {
           case util.Success(synthsugg) => Some(synthsugg)
           case util.Failure(error)     => println(error); None
         }
     }
+    
+    val uniques = results.groupBy(_._1).mapValues(_.minBy(_._3.size)).toSeq.map {
+      case (_, (_, name, code)) => SynthesizedSuggestion(name, code)
+    }
+    
+    uniques
   }
 
   private def suggestTopLevel(expr: Expr): Seq[NamedTopLevelSuggestion] = expr match {

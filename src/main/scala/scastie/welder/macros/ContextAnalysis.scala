@@ -139,13 +139,11 @@ trait ContextAnalysis { self: Macros =>
 
   protected[macros] case class OpChainLeaf(expr: Tree, op: Rel, proof: Tree) extends OpChainTree
 
-  protected[macros] case class OpChain(root: OpChainTree, expr: Tree) extends OpChainSegment {
+  protected[macros] case class OpChain(root: OpChainTree, expr: Tree, pos: Position) extends OpChainSegment {
     override def lhs = root.rightMost.expr
     override def op = root.rightMost.op
     override def rhs = expr
     override def proof = root.rightMost.proof
-
-    def pos: (Int, Int) = (root.leftMost.expr.pos.start, expr.pos.end)
   }
 
   private val InoxExprType = typeOf[inox.trees.Expr]
@@ -175,7 +173,7 @@ trait ContextAnalysis { self: Macros =>
 
     object Chain {
       def unapply(t: Tree): Option[OpChain] = t match {
-        case q"${ Tree(root) }.|(${ Typed(expr, tpe) })" if tpe <:< InoxExprType => Some(OpChain(root, expr))
+        case q"${ Tree(root) }.|(${ Typed(expr, tpe) })" if tpe <:< InoxExprType => Some(OpChain(root, expr, t.pos))
         case _ => None
       }
     }

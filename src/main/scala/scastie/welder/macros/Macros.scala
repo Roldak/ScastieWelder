@@ -47,13 +47,11 @@ class Macros(val c: Context)
 	    """
   }
 
-  private lazy val prelude: Tree = {
-    def getStringAt(pos: Position) = s"ScastieExports.getStringAt(${pos.start}, ${pos.end})"
-
+  private lazy val chainContextInit: Tree = {
     def copyOf(t: Tree): Tree = {
-      val start = t.pos.start
-      val end = t.pos.end
-      q"""Raw("%" + ${start.toString} + ", " + ${end.toString} + "%")"""
+      val start = t.pos.start - preludeOffset
+      val end = t.pos.end - preludeOffset
+      q"""Raw("%%%" + ${start.toString} + "->" + ${end.toString} + "%%%")"""
     }
 
     val LHS: Int = 0
@@ -76,9 +74,18 @@ class Macros(val c: Context)
 
         q"""($prevAST `.` "|")(${genChainTree(next)})"""
     }
+    
+    def genChain(chain: OpChain)(implicit side: Int): Tree = {
+      val rootAST = if (chain == enclosingOpSegment)
+        q"""(${genChainTree(enclosingOpChain.root)} `.` "|")((res `.` "==|")(${proofOrSugg(1 - side)}))"""
+      else 
+        genChainTree(enclosingOpChain.root)
+        
+      q"""($rootAST `.` "|")(${copyOf(enclosingOpChain.expr)})"""
+    }
 
-    val chainAstLHS: Tree = q"""(${genChainTree(enclosingOpChain.root)(LHS)} `.` "|")(${copyOf(enclosingOpChain.expr)})"""
-    val chainAstRHS: Tree = q"""(${genChainTree(enclosingOpChain.root)(RHS)} `.` "|")(${copyOf(enclosingOpChain.expr)})"""
+    val chainAstLHS: Tree = genChain(enclosingOpChain)(LHS)
+    val chainAstRHS: Tree = genChain(enclosingOpChain)(RHS)
 
     q"""
       import scastie.welder.codegen._
@@ -113,8 +120,8 @@ class Macros(val c: Context)
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)"""
 
-    val chainStart = enclosingOpChain.pos._1
-    val chainEnd = enclosingOpChain.pos._2
+    val chainStart = enclosingOpChain.pos.start - preludeOffset
+    val chainEnd = enclosingOpChain.pos.end - preludeOffset
     
     q"""
 	    ({
@@ -123,7 +130,7 @@ class Macros(val c: Context)
 	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val (lhs, op, rhs) = ($lhs, $op, $rhs)
 	      
-	      ..$prelude
+	      ..$chainContextInit
 	      
         val str = "<h1>Select suggestion to apply</h1>" + $call.map { case scastie.welder.core.SynthesizedSuggestion(name, replacement) =>
           "<button onclick='ScastieExports.replaceCode(" + $chainStart + ", " + $chainEnd + ", \"" + replacement + "\")'>" + name + "</button><br>"
