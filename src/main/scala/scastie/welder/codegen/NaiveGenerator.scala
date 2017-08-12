@@ -5,14 +5,6 @@ import scala.meta._
 class NaiveGenerator extends ScalaCodeGenerator {
   import ScalaAST._
 
-  private case class GenContext(parents: List[ScalaAST]) {
-    def withParent(parent: ScalaAST) = copy(parents = parent :: parents)
-    def parent = parents.head
-    def hasParent = !parents.isEmpty
-  }
-
-  private val emptyContext = GenContext(Nil)
-
   private val letter: Set[Char] = ('a' to 'z').toSet ++ ('A' to 'Z').toSet
 
   private def precedenceOf(selector: String): Int = {
@@ -35,22 +27,11 @@ class NaiveGenerator extends ScalaCodeGenerator {
     require(selector.size > 0)
     selector.last != ':'
   }
-  
+
   private def isOperator(selector: String): Boolean = !selector.exists(letter)
-  
+
   private object Operator {
     def unapply(s: String): Option[String] = if (isOperator(s)) Some(s) else None
-  }
-
-  private def genPattern(pattern: Pattern): String = pattern match {
-    case ValDecl(id, Some(tpe))  => s"$id: ${gen(tpe)(emptyContext)}"
-    case ValDecl(id, None)       => id
-    case Unapply(extr, patterns) => s"${gen(extr)(emptyContext)}(${patterns map genPattern mkString ", "})"
-  }
-
-  private def genCase(c: Case)(ctx: GenContext): String = c match {
-    case Case(pattern, Some(guard), body) => s"case ${genPattern(pattern)} if ${gen(guard)(emptyContext)} => ${gen(body)(emptyContext)}"
-    case Case(pattern, None, body)        => s"case ${genPattern(pattern)} => ${gen(body)(emptyContext)}"
   }
 
   private sealed abstract class OpTree
@@ -71,12 +52,28 @@ class NaiveGenerator extends ScalaCodeGenerator {
         case _ => None
       }
     }
+  }
 
-    def render(tree: OpTree)(ctx: GenContext, precedence: Int = 0): String = tree match {
+  private def isSingleLine(x: String): Boolean = !x.exists(_ == '\n')
+
+  private case class PrettyPrinter(indent: Int = 0, parents: List[ScalaAST] = Nil) {
+    private lazy val newline = "\n" + "  " * indent
+    private lazy val newline2 = newline + "  "
+
+    private def indented = copy(indent = indent + 1)
+    private def indented(count: Int) = copy(indent = indent + count)
+
+    private def from(parent: ScalaAST) = copy(parents = parent :: parents)
+    private def fresh = copy(parents = Nil)
+
+    def parent = parents.head
+    def hasParent = !parents.isEmpty
+
+    def genOpTree(tree: OpTree)(precedence: Int): String = tree match {
       case OpNode(lhs, op, rhs) =>
         val opPrecedence = precedenceOf(op)
-        val left = render(lhs)(ctx, opPrecedence)
-        val right = render(rhs)(ctx, opPrecedence)
+        val left = genOpTree(lhs)(opPrecedence)
+        val right = genOpTree(rhs)(opPrecedence)
 
         val res = if (isLeftAssociative(op))
           s"$left $op $right"
@@ -86,51 +83,67 @@ class NaiveGenerator extends ScalaCodeGenerator {
         if (opPrecedence < precedence) s"(${res})"
         else res
 
-      case OpLeaf(ast) => gen(ast)(ctx)
-    }
-  }
-
-  private def gen(ast: ScalaAST)(ctx: GenContext): String = {
-    val nextCtx = ctx withParent ast
-    def recGen(ast: ScalaAST) = gen(ast)(nextCtx)
-    def newGen(ast: ScalaAST) = gen(ast)(emptyContext)
-
-    val res = ast match {
-      case Raw(text)              => text
-      case StringLiteral(lit)     => s""""$lit""""
-      case IntLiteral(lit)        => lit.toString
-
-      case Select(obj, member)    => s"${recGen(obj)}.$member"
-      case TypeApply(obj, tps)    => s"${recGen(obj)}[${tps map newGen mkString ", "}]"
-      case OpTree(tree)           => OpTree.render(tree)(nextCtx)
-      case Apply(obj, args)       => s"${recGen(obj)}(${args map newGen mkString ", "})"
-      case Block(stmts)           => s"{${stmts map newGen mkString "; "}}"
-      case Ascript(obj, tpe)      => s"${recGen(obj)}: ${recGen(tpe)}"
-
-      case ValDef(pattern, rhs)   => s"val ${genPattern(pattern)} = ${recGen(rhs)}"
-      case Match(sel, cases)      => s"${recGen(sel)} match { ${cases map genCase mkString " "} }"
-      case Function(params, body) => s"(${params map genPattern mkString ", "}) => ${recGen(body)}"
-      case PartialFunction(cases) => s"{ ${cases map genCase mkString " "} }"
-      case Tuple(elems)           => s"(${elems map newGen mkString ", "})"
+      case OpLeaf(ast) => gen(ast)
     }
 
-    if (ctx.hasParent) {
-      val parent = ctx.parent
+    def genPattern(pattern: Pattern): String = pattern match {
+      case ValDecl(id, Some(tpe))  => s"$id: ${gen(tpe)}"
+      case ValDecl(id, None)       => id
+      case Unapply(extr, patterns) => s"${gen(extr)}(${patterns map genPattern mkString ", "})"
+    }
 
-      val mustPar = ast match {
-        case _: Raw | _: StringLiteral | _: IntLiteral => false
-        case _: Select | _: TypeApply | _: Apply       => false
-        case _: Tuple                                  => false
-        case _                                         => true
+    def genCase(c: Case): String = c match {
+      case Case(pattern, Some(guard), body) => s"case ${genPattern(pattern)} if ${gen(guard)} => ${gen(body)}"
+      case Case(pattern, None, body)        => s"case ${genPattern(pattern)} => ${gen(body)}"
+    }
+
+    def genFuncParams(params: Seq[ValDecl]): String = params match {
+      case Seq(param) => genPattern(param)
+      case _          => s"(${params map genPattern mkString ", "})"
+    }
+
+    def gen(ast: ScalaAST): String = {
+      def rec = from(ast)
+
+      val res = ast match {
+        case Raw(text)                           => text
+        case StringLiteral(lit)                  => s""""$lit""""
+        case IntLiteral(lit)                     => lit.toString
+
+        case Select(obj, member)                 => s"${rec.gen(obj)}.$member"
+        case TypeApply(obj, tps)                 => s"${rec.gen(obj)}[${tps map fresh.gen mkString ", "}]"
+        case OpTree(tree)                        => genOpTree(tree)(0)
+        case Apply(obj, Seq(f: Function))        => s"${rec.gen(obj)} ${fresh.gen(f)}"
+        case Apply(obj, Seq(f: PartialFunction)) => s"${rec.gen(obj)} ${fresh.gen(f)}"
+        case Apply(obj, args)                    => s"${rec.gen(obj)}(${args map fresh.gen mkString ", "})"
+        case Block(stmts)                        => s"{${newline2}${stmts map indented.fresh.gen mkString newline2}${newline}}"
+        case Ascript(obj, tpe)                   => s"${rec.gen(obj)}: ${rec.gen(tpe)}"
+
+        case ValDef(pattern, rhs)                => s"val ${fresh.genPattern(pattern)} = ${rec.gen(rhs)}"
+        case Match(sel, cases)                   => s"${rec.gen(sel)} match {${newline2}${cases map indented.fresh.genCase mkString newline2}${newline}}"
+        case Function(params, body)              => s"{ ${fresh.genFuncParams(params)} => ${newline2}${rec.indented.gen(body)}${newline}}"
+        case PartialFunction(cases)              => s"{${newline2}${cases map indented.fresh.genCase mkString newline2}${newline}}"
+        case Tuple(elems)                        => s"(${elems map fresh.gen mkString ", "})"
       }
 
-      if (mustPar) s"(${res})"
-      else res
-    } else res
+      if (hasParent) {
+        val mustPar = ast match {
+          case _: Raw | _: StringLiteral | _: IntLiteral => false
+          case _: Select | _: TypeApply | _: Apply       => false
+          case _: Tuple                                  => false
+
+          case _                                         => true
+        }
+
+        if (mustPar) s"(${res})"
+        else res
+      } else res
+    }
+
   }
 
   override def generateScalaCode(ast: ScalaAST): String = {
-    val res = gen(ast)(emptyContext)
+    val res = PrettyPrinter().gen(ast)
 
     val parsed = res.parse[Stat]
 
