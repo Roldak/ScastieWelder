@@ -40,16 +40,18 @@ trait Assistant
 
   def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext): Seq[SynthesizedSuggestion] = {
     object Theorem {
-      def unapply(v: Any): Option[(theory.Theorem, String => String)] = v match {
+      import scastie.welder.codegen.ScalaAST.Implicits._
+      
+      def unapply(v: Any): Option[(theory.Theorem, ScalaAST => ScalaAST)] = v match {
         case t: theory.Theorem => Some((t, identity))
         case a: theory.Attempt[_] if a.isSuccessful && a.get.isInstanceOf[theory.Theorem] =>
-          Some((a.get.asInstanceOf[theory.Theorem], _ + ".get"))
+          Some((a.get.asInstanceOf[theory.Theorem], _ `.` "get"))
         case _ => None
       }
     }
 
     val thms = reflectedContext.collect {
-      case (path, Theorem(thm, fullPath)) => (path, Result(theory.Var(fullPath(path)), thm.expression))
+      case (path, Theorem(thm, fullPath)) => (path.toString, Result(theory.Var(codeGen.generateScalaCode(fullPath(path))), thm.expression))
     } toMap
 
     val ihses = reflectedContext.collect {
@@ -58,10 +60,10 @@ trait Assistant
           val thm = ihs.hypothesis(e)
 
           // TODO: add structural induction support to Welder Proofs
-          thm map (thm => Result(theory.Var(path), thm.expression))
+          thm map (thm => Result(theory.Var(path.toString), thm.expression))
         }
 
-        (path, StructuralInductionHypothesis(
+        (path.toString, StructuralInductionHypothesis(
           ihs.constructor,
           ihs.expression,
           hyp,
