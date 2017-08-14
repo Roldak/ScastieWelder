@@ -14,7 +14,6 @@ trait Assistant
     with Synthesizers {
 
   val theory: AssistedTheory
-  val reflectedContext: ReflectedContext
   val codeGen: ScalaCodeGenerator
 
   case class Result(proof: theory.Proof, expression: Expr)
@@ -26,10 +25,10 @@ trait Assistant
 
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
 
-  def suggest(expr: Expr): Seq[SynthesizedSuggestion] = {
+  def suggest(expr: Expr)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
     suggestTopLevel(expr) flatMap {
       case (name, sugg) =>
-        util.Try(synthesizeTopLevel(expr, sugg)) map (synthed => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
+        util.Try(synthesizeTopLevel(expr, sugg)(reflCtx)) map (synthed => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
           case util.Success(synthsugg) => Some(synthsugg)
           case util.Failure(error)     => println(error); None
         }
@@ -38,7 +37,7 @@ trait Assistant
 
   type ASTContext = (ScalaAST, ScalaAST, ScalaAST) => ScalaAST
 
-  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext): Seq[SynthesizedSuggestion] = {
+  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
     object Theorem {
       import scastie.welder.codegen.ScalaAST.Implicits._
       
@@ -50,17 +49,17 @@ trait Assistant
       }
     }
 
-    val thms = reflectedContext.collect {
-      case (path, Theorem(thm, fullPath)) => (path.toString, Result(theory.Var(codeGen.generateScalaCode(fullPath(path))), thm.expression))
+    val thms = reflCtx.collect {
+      case (path, Theorem(thm, fullPath)) => (codeGen.generateScalaCode(path), Result(theory.Var(codeGen.generateScalaCode(fullPath(path))), thm.expression))
     } toMap
 
-    val ihses = reflectedContext.collect {
+    val ihses = reflCtx.collect {
       case (path, ihs: theory.StructuralInductionHypotheses) =>
         val hyp = { (e: Expr) =>
           val thm = ihs.hypothesis(e)
 
           // TODO: add structural induction support to Welder Proofs
-          thm map (thm => Result(theory.Var(path.toString), thm.expression))
+          thm map (thm => Result(theory.Var(codeGen.generateScalaCode(path)), thm.expression))
         }
 
         (path.toString, StructuralInductionHypothesis(
@@ -75,7 +74,7 @@ trait Assistant
 
     val results = (lhsSuggs ++ rhsSuggs) flatMap {
       case (name, ctx, sugg) =>
-        util.Try(synthesizeInner(sugg)) map {
+        util.Try(synthesizeInner(sugg)(reflCtx)) map {
           case (res, proof, recsugg) => (resultExprOf(sugg), name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
         } match {
           case util.Success(synthsugg) => Some(synthsugg)
@@ -111,9 +110,8 @@ trait Assistant
 }
 
 object Assistant {
-  def apply(thry: AssistedTheory, ctx: ReflectedContext, cg: ScalaCodeGenerator): Assistant { val theory: thry.type } = new Assistant {
+  def apply(thry: AssistedTheory, cg: ScalaCodeGenerator): Assistant { val theory: thry.type } = new Assistant {
     override val theory: thry.type = thry
-    override val reflectedContext: ReflectedContext = ctx
     override val codeGen: ScalaCodeGenerator = cg
   }
 }

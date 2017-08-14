@@ -30,7 +30,7 @@ class Macros(val c: Context)
 
     println(values)
 
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx, codeGen).suggest(expr)"""
+    val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).suggest(expr)(reflCtx)"""
 
     q"""
 	    {
@@ -118,7 +118,7 @@ class Macros(val c: Context)
     val OpChainSegment(lhs, op, rhs, proof) = enclosingOpSegment
     println(s"$enclosingOpChain   =>    Segment($lhs, $op, $proof, $rhs)")
 
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, reflCtx, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)"""
+    val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
 
     val chainStart = enclosingOpChain.pos.start - preludeOffset
     val chainEnd = enclosingOpChain.pos.end - preludeOffset
