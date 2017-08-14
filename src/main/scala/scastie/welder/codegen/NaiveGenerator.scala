@@ -4,12 +4,14 @@ import scala.meta._
 
 class NaiveGenerator extends ScalaCodeGenerator {
   import ScalaAST._
+  import scastie.welder.Constants._
+  import scastie.welder.Constants.Implicits._
 
   private val letter: Set[Char] = ('a' to 'z').toSet ++ ('A' to 'Z').toSet
 
-  private def precedenceOf(selector: String): Int = {
-    require(selector.size > 0)
-    selector.head match {
+  private def precedenceOf(selector: CleanString): Int = {
+    require(selector.str.size > 0)
+    selector.str.head match {
       case chr if letter(chr) => 0
       case '|'                => 1
       case '^'                => 2
@@ -23,12 +25,12 @@ class NaiveGenerator extends ScalaCodeGenerator {
     }
   }
 
-  private def isLeftAssociative(selector: String): Boolean = {
-    require(selector.size > 0)
-    selector.last != ':'
+  private def isLeftAssociative(selector: CleanString): Boolean = {
+    require(selector.str.size > 0)
+    selector.str.last != ':'
   }
 
-  private def isOperator(selector: String): Boolean = !selector.exists(letter)
+  private def isOperator(selector: CleanString): Boolean = !selector.str.exists(letter)
 
   private object Operator {
     def unapply(s: String): Option[String] = if (isOperator(s)) Some(s) else None

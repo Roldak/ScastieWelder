@@ -62,7 +62,7 @@ trait Assistant
           thm map (thm => Result(theory.Var(codeGen.generateScalaCode(path)), thm.expression))
         }
 
-        (path.toString, StructuralInductionHypothesis(
+        (codeGen.generateScalaCode(path), StructuralInductionHypothesis(
           ihs.constructor,
           ihs.expression,
           hyp,

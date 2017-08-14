@@ -7,6 +7,7 @@ trait ContextAnalysis { self: Macros =>
   val c: Context
 
   import c.universe._
+  import scastie.welder.Constants
 
   protected[macros] class ValOrDefDefCollector(val before: Tree) extends Traverser {
     private var valdefs: List[ValOrDefDef] = _
@@ -74,11 +75,11 @@ trait ContextAnalysis { self: Macros =>
 
   protected[macros] sealed abstract class Rel {
     override def toString: String = this match {
-      case Rel.LE => "<=|"
-      case Rel.LT => "<<|"
-      case Rel.EQ => "==|"
-      case Rel.GT => ">>|"
-      case Rel.GE => ">=|"
+      case Rel.LE => Constants.Rel.LE
+      case Rel.LT => Constants.Rel.LT
+      case Rel.EQ => Constants.Rel.EQ
+      case Rel.GT => Constants.Rel.GT
+      case Rel.GE => Constants.Rel.GE
     }
   }
 

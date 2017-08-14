@@ -9,9 +9,12 @@ trait Synthesizers { self: Assistant =>
 
   import ScalaAST._
   import ScalaAST.Implicits._
+  import scastie.welder.Constants._
 
   class SynthesisError(val msg: String) extends RuntimeException(msg)
 
+  private val isNotWildcard = (x: String) => x != "_"
+  
   private object BasicNamer {
     def apply(id: String): Int => String = i =>
       if (i == 0) id
@@ -91,14 +94,14 @@ trait Synthesizers { self: Assistant =>
     }
 
     private def synthesizeAndE(cunj: Proof, parts: Seq[theory.MetaIdentifier], body: Proof): ScalaAST = {
-      val shortened: Option[ScalaAST] = if (parts.count(_ != "_") == 1) {
-        val idx = parts.indexWhere(_ != "_")
+      val shortened: Option[ScalaAST] = if (parts.count(isNotWildcard) == 1) {
+        val idx = parts.indexWhere(isNotWildcard)
         updated(Var(parts(idx)), Raw("andE")(synthesizeProof(cunj))(IntLiteral(idx))).map(_.synthesizeProof(body))
       } else None
       
       shortened.getOrElse{
-        updatedVarsThen(parts filter (_ != "_") map (id => (Var(id), BasicNamer(id)))) { (vars, rec) =>
-          Block(Seq(ValDef(Unapply(Raw("Seq"), mergeWhen(parts, vars)(_ != "_")), Ascript(Raw("andE")(synthesizeProof(cunj)), Raw("Seq[Theorem]"))),
+        updatedVarsThen(parts.filter(isNotWildcard).map(id => (Var(id), BasicNamer(id)))) { (vars, rec) =>
+          Block(Seq(ValDef(Unapply(Raw("Seq"), mergeWhen(parts, vars)(isNotWildcard)), Ascript(Raw("andE")(synthesizeProof(cunj)), Raw("Seq[Theorem]"))),
             rec.synthesizeProof(body)))
         }
       }
@@ -167,7 +170,7 @@ trait Synthesizers { self: Assistant =>
         }
 
         case ToChain => expr match {
-          case Equals(lhs, rhs) => ((synthesizeExpr(lhs) `.` "==|")(inlineSuggest) `.` "|")(synthesizeExpr(rhs))
+          case Equals(lhs, rhs) => ((synthesizeExpr(lhs) `.` Rel.EQ)(inlineSuggest) `.` Rel.CONCAT)(synthesizeExpr(rhs))
         }
       }
     }

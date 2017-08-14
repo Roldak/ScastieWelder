@@ -68,20 +68,20 @@ class Macros(val c: Context)
 
       case node @ OpChainNode(prev, next) =>
         val prevAST = if (node == enclosingOpSegment)
-          q"""(${genChainTree(prev)} `.` "|")((res `.` "==|")(${proofOrSugg(1 - side)}))"""
+          q"""(${genChainTree(prev)} `.` Constants.Rel.CONCAT)((res `.` Constants.Rel.EQ)(${proofOrSugg(1 - side)}))"""
         else
           genChainTree(prev)
 
-        q"""($prevAST `.` "|")(${genChainTree(next)})"""
+        q"""($prevAST `.` Constants.Rel.CONCAT)(${genChainTree(next)})"""
     }
 
     def genChain(chain: OpChain)(implicit side: Int): Tree = {
       val rootAST = if (chain == enclosingOpSegment)
-        q"""(${genChainTree(enclosingOpChain.root)} `.` "|")((res `.` "==|")(${proofOrSugg(1 - side)}))"""
+        q"""(${genChainTree(enclosingOpChain.root)} `.` Constants.Rel.CONCAT)((res `.` Constants.Rel.EQ)(${proofOrSugg(1 - side)}))"""
       else
         genChainTree(enclosingOpChain.root)
 
-      q"""($rootAST `.` "|")(${copyOf(enclosingOpChain.expr)})"""
+      q"""($rootAST `.` Constants.Rel.CONCAT)(${copyOf(enclosingOpChain.expr)})"""
     }
 
     val chainAstLHS: Tree = genChain(enclosingOpChain)(LHS)
@@ -91,6 +91,7 @@ class Macros(val c: Context)
       import scastie.welder.codegen._
       import scastie.welder.codegen.ScalaAST._
       import scastie.welder.codegen.ScalaAST.Implicits._
+      import scastie.welder.Constants
       
       def contextForLHS(res: ScalaAST, proof: ScalaAST, sugg: ScalaAST): ScalaAST = $chainAstLHS
       def contextForRHS(res: ScalaAST, proof: ScalaAST, sugg: ScalaAST): ScalaAST = $chainAstRHS
