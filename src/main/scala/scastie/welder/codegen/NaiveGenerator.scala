@@ -94,9 +94,12 @@ class NaiveGenerator extends ScalaCodeGenerator {
       case Unapply(extr, patterns) => s"${gen(extr)}(${patterns map genPattern mkString ", "})"
     }
 
-    def genCase(c: Case): String = c match {
-      case Case(pattern, Some(guard), body) => s"case ${genPattern(pattern)} if ${gen(guard)} => ${gen(body)}"
-      case Case(pattern, None, body)        => s"case ${genPattern(pattern)} => ${gen(body)}"
+    def genCase(c: Case): String = {
+      val pat = genPattern(c.pattern)
+      val guard = c.guard.map(g => s"if ${gen(g)} ").getOrElse("")
+      val body = indented.gen(c.body)
+      
+      s"case $pat $guard => $newline2$body"
     }
 
     def genFuncParams(params: Seq[ValDecl]): String = params match {
@@ -122,9 +125,9 @@ class NaiveGenerator extends ScalaCodeGenerator {
         case Ascript(obj, tpe)                   => s"${rec.gen(obj)}: ${rec.gen(tpe)}"
 
         case ValDef(pattern, rhs)                => s"val ${fresh.genPattern(pattern)} = ${rec.gen(rhs)}"
-        case Match(sel, cases)                   => s"${rec.gen(sel)} match {${newline2}${cases map indented.fresh.genCase mkString newline2}${newline}}"
+        case Match(sel, cases)                   => s"${rec.gen(sel)} match {${newline2}${cases map indented.fresh.genCase mkString s"$newline2$newline2"}${newline}}"
         case Function(params, body)              => s"{ ${fresh.genFuncParams(params)} => ${newline2}${rec.indented.gen(body)}${newline}}"
-        case PartialFunction(cases)              => s"{${newline2}${cases map indented.fresh.genCase mkString newline2}${newline}}"
+        case PartialFunction(cases)              => s"{${newline2}${cases map indented.fresh.genCase mkString s"$newline2$newline2"}${newline}}"
         case Tuple(elems)                        => s"(${elems map fresh.gen mkString ", "})"
       }
 

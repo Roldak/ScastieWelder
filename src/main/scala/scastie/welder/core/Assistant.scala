@@ -75,15 +75,15 @@ trait Assistant
     val results = (lhsSuggs ++ rhsSuggs) flatMap {
       case (name, ctx, sugg) =>
         util.Try(synthesizeInner(sugg)(reflCtx)) map {
-          case (res, proof, recsugg) => (resultExprOf(sugg), name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
+          case (res, proof, recsugg) => (resultExprOf(sugg), ctx, name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
         } match {
           case util.Success(synthsugg) => Some(synthsugg)
           case util.Failure(error)     => println(error); None
         }
     }
 
-    val uniques = results.groupBy(_._1).mapValues(_.minBy(_._3.size)).toSeq.map {
-      case (_, (_, name, code)) => SynthesizedSuggestion(name, code)
+    val uniques = results.groupBy(x => (x._1, x._2)).mapValues(_.minBy(_._4.size)).toSeq.map {
+      case (_, (_, _, name, code)) => SynthesizedSuggestion(name, code)
     }
 
     uniques

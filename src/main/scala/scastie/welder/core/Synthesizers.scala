@@ -3,6 +3,7 @@ package scastie.welder.core
 import inox._
 import inox.trees._
 import scastie.welder.codegen._
+import scala.annotation.tailrec
 
 trait Synthesizers { self: Assistant =>
   import theory._
@@ -14,11 +15,12 @@ trait Synthesizers { self: Assistant =>
   class SynthesisError(val msg: String) extends RuntimeException(msg)
 
   private val isNotWildcard = (x: String) => x != "_"
-  
+
   private object BasicNamer {
     def apply(id: String): Int => String = i =>
       if (i == 0) id
-      else s"${id}_$i"
+      else if (i == 1) s"${id(0)}"
+      else s"${id}_${i - 1}"
   }
 
   private def mergeWhen[T](pattern: Seq[T], values: Seq[T])(f: T => Boolean): Seq[T] = {
@@ -33,23 +35,26 @@ trait Synthesizers { self: Assistant =>
   }
 
   private case class Synthesizer(reflectedContext: ReflectedContext) {
-    def updated(value: Any, path: ScalaAST): Option[Synthesizer] =
-      if (reflectedContext.existsPath(path)) None
-      else Some(copy(reflectedContext = reflectedContext.updated(path, value)))
+    @tailrec
+    private def chooseName(namer: Int => String, i: Int = 0): String = {
+      val name = namer(i)
+      if (reflectedContext.existsPath(Raw(name))) chooseName(namer, i + 1)
+      else name
+    }
+
+    def updated(value: Any, name: ScalaAST): Option[Synthesizer] =
+      if (reflectedContext.existsPath(name)) None
+      else Some(copy(reflectedContext = reflectedContext.updated(name, value)))
 
     def updatedVar(value: Any, namer: Int => String): (String, Synthesizer) = {
-      def choosePath(i: Int = 0): String =
-        if (reflectedContext.existsPath(Raw(namer(i)))) choosePath(i + 1)
-        else namer(i)
-
-      val path = choosePath()
-      (path, copy(reflectedContext = reflectedContext.updated(Raw(path), value)))
+      val name = chooseName(namer)
+      (name, copy(reflectedContext = reflectedContext.updated(Raw(name), value)))
     }
 
     def updatedVars(elems: Seq[(Any, Int => String)]): (Seq[String], Synthesizer) = elems.foldLeft((Seq.empty[String], this)) {
-      case ((paths, synth), (value, namer)) =>
-        val (path, newSynth) = synth.updatedVar(value, namer)
-        (paths :+ path, newSynth)
+      case ((names, synth), (value, namer)) =>
+        val (name, newSynth) = synth.updatedVar(value, namer)
+        (names :+ name, newSynth)
     }
 
     def updatedVarsThen[T](elems: Seq[(Any, Int => String)])(f: (Seq[String], Synthesizer) => T): T = f.tupled(updatedVars(elems))
@@ -58,10 +63,13 @@ trait Synthesizers { self: Assistant =>
       def unapply(t: Any): Option[ScalaAST] = reflectedContext.get(t)
     }
 
+    private def suggest(expr: Expr): ScalaAST = Raw("suggest")(synthesizeExpr(expr))
+    private def inlineSuggest: ScalaAST = Raw("suggest")
+
     private def synthesizeValDef(vd: trees.ValDef): ScalaAST = (synthesizeType(vd.tpe) `.` "::")(vd.id.name)
 
     private def synthesizeType(tpe: Type): ScalaAST = tpe match {
-      case Reflected(path)                     => path
+      case Reflected(name)                     => name
       case TypeParameter(Reflected(id), flags) => Raw("TypeParameter")(id, Raw(flags.toString))
       case FunctionType(from, to)              => (synthesizeType(to) `.` "=>:")(Tuple(from map synthesizeType))
       case TupleType(tps)                      => Raw("T")(tps map synthesizeType)
@@ -73,7 +81,7 @@ trait Synthesizers { self: Assistant =>
       def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
 
       expr match {
-        case Reflected(path) => path
+        case Reflected(name) => name
         case Variable(id, tpe, flags) => Raw(id.name)
         case Forall(vds, body) => Raw("forall")(vds map synthesizeValDef)(Function(vds map (_.id.name), synthesizeExpr(body)))
         case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)
@@ -98,8 +106,8 @@ trait Synthesizers { self: Assistant =>
         val idx = parts.indexWhere(isNotWildcard)
         updated(Var(parts(idx)), Raw("andE")(synthesizeProof(cunj))(IntLiteral(idx))).map(_.synthesizeProof(body))
       } else None
-      
-      shortened.getOrElse{
+
+      shortened.getOrElse {
         updatedVarsThen(parts.filter(isNotWildcard).map(id => (Var(id), BasicNamer(id)))) { (vars, rec) =>
           Block(Seq(ValDef(Unapply(Raw("Seq"), mergeWhen(parts, vars)(isNotWildcard)), Ascript(Raw("andE")(synthesizeProof(cunj)), Raw("Seq[Theorem]"))),
             rec.synthesizeProof(body)))
@@ -108,7 +116,7 @@ trait Synthesizers { self: Assistant =>
     }
 
     private def synthesizeProof(proof: Proof): ScalaAST = proof match {
-      case Reflected(path)             => path
+      case Reflected(name)             => name
       case Var(id)                     => Raw(id)
       case Axiom(theorem)              => ???
       case ImplI(id, hyp, concl)       => Raw("implI")(synthesizeExpr(hyp))(Function(Seq(id), synthesizeProof(concl)))
@@ -124,9 +132,6 @@ trait Synthesizers { self: Assistant =>
     }
 
     def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion): ScalaAST = {
-      def suggest(expr: Expr): ScalaAST = Raw("suggest")(synthesizeExpr(expr))
-      def inlineSuggest: ScalaAST = Raw("suggest")
-
       sugg match {
         case NegateTwice => expr match {
           case Not(Not(body)) => Raw("notE")(suggest(body))
@@ -155,10 +160,12 @@ trait Synthesizers { self: Assistant =>
           }
 
           val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
-            case (Reflected(constrId), expr, vars) => Case(
-              Unapply(Raw("C"), "constr" +: (vars map (_.id.name))),
-              Some((Raw("constr") `.` "==")(constrId)),
-              suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
+            case (Reflected(constrId), expr, vars) => updatedVarsThen(vars map (v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
+              Case(
+                Unapply(Raw("C"), "constr" +: names),
+                Some((Raw("constr") `.` "==")(constrId)),
+                synth.suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
+            }
           }
 
           Raw("structuralInduction")(Function(Seq(ValDecl(v.id.name, Some(Raw("Expr")))), synthesizeExpr(body)), synthesizeValDef(v))(
@@ -176,8 +183,6 @@ trait Synthesizers { self: Assistant =>
     }
 
     def synthesizeInner(sugg: InnerSuggestion): (ScalaAST, ScalaAST, ScalaAST) = {
-      def inlineSuggest: ScalaAST = Raw("suggest")
-
       sugg match {
         case RewriteSuggestion(_, res, proof) =>
           (synthesizeExpr(res), synthesizeProof(proof.proof), inlineSuggest)
