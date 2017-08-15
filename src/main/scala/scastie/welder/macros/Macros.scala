@@ -12,6 +12,31 @@ class Macros(val c: Context)
 
   private val preludeOffset = 354 // hardcoded for now
 
+  lazy val rewriteAnnotationType = c.prefix.tree.tpe.member(TypeName("rewrite")).asType.toTypeIn(c.prefix.tree.tpe)
+  
+  lazy val reflectedContext = {
+    val values = reachableDefs.filter(!_.symbol.isMethod).map(vd => vd.name.toString -> vd.name).toMap
+
+    val rewrites = reachableDefs.flatMap(rdef => rdef.symbol.annotations.find(_.tree.tpe =:= rewriteAnnotationType).map(annot => (rdef, annot))).map {
+      case (rewrite, annot) =>
+        val annotArgs = annot.tree.children.tail
+        val (valdefs, vars) = annotArgs.zipWithIndex.map {
+          case (p, i) =>
+            val name = TermName(s"v$i")
+            (q"""val $name = Variable.fresh(${s"v$i"}, A)""", q"$name")
+        } unzip
+
+        val res = q"""{
+          ..$valdefs
+          new ${c.prefix}.RewriteRule(${rewrite.name.toTermName}(..$vars), Seq(..$vars))
+        }"""
+
+        rewrite.name.toString -> res
+    }.toMap
+    
+    q"scastie.welder.core.ReflectedContext($values ++ $rewrites)"
+  }
+
   def suggest(expr: Tree): Tree = {
     assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
 
@@ -23,19 +48,35 @@ class Macros(val c: Context)
     val typedtree = c.typecheck(testtree, c.TERMmode)
     println(typedtree.equalsStructure(c.typecheck(typedtree, c.TERMmode)))
 		*/
-    //println(reachableValOrDefs map (_.symbol.typeSignature))
 
-    //println("PATH: " + (pathToMacro map (_.getClass.getSimpleName)))
-    val values = reachableDefs filter (!_.symbol.isMethod) map (vd => vd.name.toString -> vd.name) toMap
-
+    val values = reachableDefs.filter(!_.symbol.isMethod).map(vd => vd.name.toString -> vd.name).toMap
     println(values)
+
+    val rewrites = reachableDefs.flatMap(rdef => rdef.symbol.annotations.find(_.tree.tpe =:= rewriteAnnotationType).map(annot => (rdef, annot))).map {
+      case (rewrite, annot) =>
+        val annotArgs = annot.tree.children.tail
+        val (valdefs, vars) = annotArgs.zipWithIndex.map {
+          case (p, i) =>
+            val name = TermName(s"v$i")
+            (q"""val $name = Variable.fresh(${s"v$i"}, A)""", q"$name")
+        } unzip
+
+        val res = q"""{
+          ..$valdefs
+          new ${c.prefix}.RewriteRule(${rewrite.name.toTermName}(..$vars), Seq(..$vars))
+        }"""
+
+        rewrite.name.toString -> res
+    }.toMap
+    
+    println(rewrites)
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).suggest(expr)(reflCtx)"""
 
     q"""
 	    {
 	      import com.olegych.scastie.api._
-	      val reflCtx = scastie.welder.core.ReflectedContext(${values})
+	      val reflCtx = ${reflectedContext}
 	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val expr = $expr
         val str = "<h1>Select suggestion to apply</h1>" + $call.map { case scastie.welder.core.SynthesizedSuggestion(name, replacement) =>
@@ -109,15 +150,8 @@ class Macros(val c: Context)
     val typedtree = c.typecheck(testtree, c.TERMmode)
     println(typedtree.equalsStructure(c.typecheck(typedtree, c.TERMmode)))
 		*/
-    //println(reachableValOrDefs map (_.symbol.typeSignature))
-
-    //println("PATH: " + (pathToMacro map (_.getClass.getSimpleName)))
-    val values = reachableDefs filter (!_.symbol.isMethod) map (vd => vd.name.toString -> vd.name) toMap
-
-    println(values)
 
     val OpChainSegment(lhs, op, rhs, proof) = enclosingOpSegment
-    println(s"$enclosingOpChain   =>    Segment($lhs, $op, $proof, $rhs)")
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
 
@@ -127,7 +161,7 @@ class Macros(val c: Context)
     q"""
 	    ({
 	      import com.olegych.scastie.api._  
-	      val reflCtx = scastie.welder.core.ReflectedContext(${values})
+	      val reflCtx = ${reflectedContext}
 	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val (lhs, op, rhs) = ($lhs, $op, $rhs)
 	      
