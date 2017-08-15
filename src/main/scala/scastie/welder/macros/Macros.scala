@@ -12,6 +12,9 @@ class Macros(val c: Context)
 
   private val preludeOffset = 354 // hardcoded for now
 
+  private val start = c.macroApplication.pos.start - preludeOffset
+  private val end = c.macroApplication.pos.end - preludeOffset
+  
   lazy val rewriteAnnotationType = c.prefix.tree.tpe.member(TypeName("rewrite")).asType.toTypeIn(c.prefix.tree.tpe)
   
   lazy val reflectedContext = {
@@ -23,7 +26,7 @@ class Macros(val c: Context)
         val (valdefs, vars) = annotArgs.zipWithIndex.map {
           case (p, i) =>
             val name = TermName(s"v$i")
-            (q"""val $name = Variable.fresh(${s"v$i"}, A)""", q"$name")
+            (q"""val $name = Variable.fresh(${s"v$i"}, $p)""", q"$name")
         } unzip
 
         val res = q"""{
@@ -40,36 +43,11 @@ class Macros(val c: Context)
   def suggest(expr: Tree): Tree = {
     assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
 
-    val start = c.macroApplication.pos.start - preludeOffset
-    val end = c.macroApplication.pos.end - preludeOffset
-
     /*
     val testtree = q"""ListA"""
     val typedtree = c.typecheck(testtree, c.TERMmode)
     println(typedtree.equalsStructure(c.typecheck(typedtree, c.TERMmode)))
 		*/
-
-    val values = reachableDefs.filter(!_.symbol.isMethod).map(vd => vd.name.toString -> vd.name).toMap
-    println(values)
-
-    val rewrites = reachableDefs.flatMap(rdef => rdef.symbol.annotations.find(_.tree.tpe =:= rewriteAnnotationType).map(annot => (rdef, annot))).map {
-      case (rewrite, annot) =>
-        val annotArgs = annot.tree.children.tail
-        val (valdefs, vars) = annotArgs.zipWithIndex.map {
-          case (p, i) =>
-            val name = TermName(s"v$i")
-            (q"""val $name = Variable.fresh(${s"v$i"}, A)""", q"$name")
-        } unzip
-
-        val res = q"""{
-          ..$valdefs
-          new ${c.prefix}.RewriteRule(${rewrite.name.toTermName}(..$vars), Seq(..$vars))
-        }"""
-
-        rewrite.name.toString -> res
-    }.toMap
-    
-    println(rewrites)
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).suggest(expr)(reflCtx)"""
 
@@ -141,9 +119,6 @@ class Macros(val c: Context)
 
   def suggestInline: Tree = {
     assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
-
-    val start = c.macroApplication.pos.start - preludeOffset
-    val end = c.macroApplication.pos.end - preludeOffset
 
     /*
     val testtree = q"""ListA"""

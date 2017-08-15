@@ -3,9 +3,10 @@ package scastie.welder.core
 import inox._
 import inox.trees._
 import scastie.welder.codegen._
+import scastie.welder.utils.ExprOps
 import scala.annotation.tailrec
 
-trait Synthesizers { self: Assistant =>
+trait Synthesizers extends ExprOps { self: Assistant =>
   import theory._
 
   import ScalaAST._
@@ -42,25 +43,40 @@ trait Synthesizers { self: Assistant =>
       else name
     }
 
-    def updated(value: Any, name: ScalaAST): Option[Synthesizer] =
+    private def updated(value: Any, name: ScalaAST): Option[Synthesizer] =
       if (reflectedContext.existsPath(name)) None
       else Some(copy(reflectedContext = reflectedContext.updated(name, value)))
 
-    def updatedVar(value: Any, namer: Int => String): (String, Synthesizer) = {
+    private def updatedVar(value: Any, namer: Int => String): (String, Synthesizer) = {
       val name = chooseName(namer)
       (name, copy(reflectedContext = reflectedContext.updated(Raw(name), value)))
     }
 
-    def updatedVars(elems: Seq[(Any, Int => String)]): (Seq[String], Synthesizer) = elems.foldLeft((Seq.empty[String], this)) {
+    private def updatedVars(elems: Seq[(Any, Int => String)]): (Seq[String], Synthesizer) = elems.foldLeft((Seq.empty[String], this)) {
       case ((names, synth), (value, namer)) =>
         val (name, newSynth) = synth.updatedVar(value, namer)
         (names :+ name, newSynth)
     }
 
-    def updatedVarsThen[T](elems: Seq[(Any, Int => String)])(f: (Seq[String], Synthesizer) => T): T = f.tupled(updatedVars(elems))
+    private def updatedVarsThen[T](elems: Seq[(Any, Int => String)])(f: (Seq[String], Synthesizer) => T): T = f.tupled(updatedVars(elems))
+
+    private lazy val rewriteRules = reflectedContext.collect {
+      case (name, rule: RewriteRule) => (name, rule)
+    }
 
     private object Reflected {
       def unapply(t: Any): Option[ScalaAST] = reflectedContext.get(t)
+    }
+
+    private object Rewritten {
+      def unapply(e: Expr): Option[ScalaAST] = {
+        rewriteRules.flatMap {
+          case (name, rule) =>
+            unify(rule.pattern, e, rule.holes.toSet) map { subst =>
+              name(rule.holes.map(subst).map(synthesizeExpr))
+            }
+        } reduceOption ((a, b) => if (a.toString.size < b.toString.size) a else b)
+      }
     }
 
     private def suggest(expr: Expr): ScalaAST = Raw("suggest")(synthesizeExpr(expr))
@@ -82,6 +98,7 @@ trait Synthesizers { self: Assistant =>
 
       expr match {
         case Reflected(name) => name
+        case Rewritten(ast) => ast
         case Variable(id, tpe, flags) => Raw(id.name)
         case Forall(vds, body) => Raw("forall")(vds map synthesizeValDef)(Function(vds map (_.id.name), synthesizeExpr(body)))
         case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)

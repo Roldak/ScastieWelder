@@ -8,8 +8,6 @@ import scastie.welder._
 import welder.Theory
 
 trait PathTreeOps {
-  val theory: Theory
-
   type TreePath = Seq[Int]
 
   def foldWithPath[T](f: (Source, TreePath, Seq[T]) => T)(e: Source, p: TreePath): T = {
