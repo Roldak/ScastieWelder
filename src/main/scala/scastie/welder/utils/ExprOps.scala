@@ -10,6 +10,8 @@ import scastie.welder.core.Assistant
 trait ExprOps { self: Assistant =>
   import self.theory._
   
+  import program.symbols.isSubtypeOf
+  
   /*
    * Unifies the two patterns, where instantiableVars denotes the set of variables appearing in any of the two patterns that are instantiable.
    */
@@ -20,20 +22,20 @@ trait ExprOps { self: Assistant =>
 
     case (v1: Variable, v2: Variable) if instantiableVars(v1) =>
       if (instantiableVars(v2)) None
-      else if (v1.tpe == v2.tpe) Some(Map(v1 -> v2))
+      else if (isSubtypeOf(v2.tpe, v1.tpe)) Some(Map(v1 -> v2))
       else None
 
     case (v1: Variable, v2: Variable) if instantiableVars(v2) =>
       if (instantiableVars(v1)) None
-      else if (v2.tpe == v1.tpe) Some(Map(v2 -> v1))
+      else if (isSubtypeOf(v1.tpe, v2.tpe)) Some(Map(v2 -> v1))
       else None
 
     case (expr, pv: Variable) =>
-      if (instantiableVars(pv) && expr.getType == pv.tpe) Some(Map(pv -> expr))
+      if (instantiableVars(pv) && isSubtypeOf(expr.getType, pv.tpe)) Some(Map(pv -> expr))
       else None
 
     case (pv: Variable, expr) =>
-      if (instantiableVars(pv) && expr.getType == pv.tpe) Some(Map(pv -> expr))
+      if (instantiableVars(pv) && isSubtypeOf(expr.getType, pv.tpe)) Some(Map(pv -> expr))
       else None
 
     case (p1, p2) if p1.getClass == p2.getClass =>

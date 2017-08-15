@@ -9,6 +9,8 @@ class Macros(val c: Context)
     with ContextAnalysis {
 
   import c.universe._
+  
+  assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
 
   private val preludeOffset = 354 // hardcoded for now
 
@@ -41,14 +43,6 @@ class Macros(val c: Context)
   }
 
   def suggest(expr: Tree): Tree = {
-    assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
-
-    /*
-    val testtree = q"""ListA"""
-    val typedtree = c.typecheck(testtree, c.TERMmode)
-    println(typedtree.equalsStructure(c.typecheck(typedtree, c.TERMmode)))
-		*/
-
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).suggest(expr)(reflCtx)"""
 
     q"""
@@ -118,14 +112,6 @@ class Macros(val c: Context)
   }
 
   def suggestInline: Tree = {
-    assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
-
-    /*
-    val testtree = q"""ListA"""
-    val typedtree = c.typecheck(testtree, c.TERMmode)
-    println(typedtree.equalsStructure(c.typecheck(typedtree, c.TERMmode)))
-		*/
-
     val OpChainSegment(lhs, op, rhs, proof) = enclosingOpSegment
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
