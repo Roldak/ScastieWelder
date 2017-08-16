@@ -524,7 +524,7 @@ trait PartialEvaluator
 
       case other               => other
     }
-    //println(s"$expr: ${expr.getType} => $res: ${expr.getType}")
+    
     res
   }
 }

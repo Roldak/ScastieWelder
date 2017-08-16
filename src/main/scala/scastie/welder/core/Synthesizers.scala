@@ -66,6 +66,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
     private object Reflected {
       def unapply(t: Any): Option[ScalaAST] = reflectedContext.get(t)
+      def unapply(t: Theorem): Option[ScalaAST] = reflectedContext.reachableTheorems.find(_._2 == t).map(_._1)
     }
 
     private object Rewritten {
@@ -135,7 +136,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
     private def synthesizeProof(proof: Proof): ScalaAST = proof match {
       case Reflected(name)             => name
       case Var(id)                     => Raw(id)
-      case Axiom(theorem)              => ???
+      case Axiom(Reflected(thm))       => thm
       case ImplI(id, hyp, concl)       => Raw("implI")(synthesizeExpr(hyp))(Function(Seq(id), synthesizeProof(concl)))
       case ImplE(impl, hyp)            => Raw("implE")(synthesizeProof(impl))(Function(Seq("goal"), (Raw("goal") `.` "by")(synthesizeProof(hyp))))
       case ForallI(v, body)            => Raw("forallI")(synthesizeValDef(v))(Function(Seq(v.id.name), synthesizeProof(body)))
@@ -146,6 +147,8 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       case OrE(disj, concl, id, cases) => ???
       case Prove(expr, hyps)           => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
       case Let(named, id, body)        => Block(Seq(ValDef(id, synthesizeProof(named)), synthesizeProof(body)))
+
+      case Axiom(notfound)             => throw new SynthesisError("Could not find reference to $notfound")
     }
 
     def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion): ScalaAST = {

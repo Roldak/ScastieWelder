@@ -321,12 +321,6 @@ protected[core] trait Analysers extends PathTreeOps with ExprOps { self: Assista
   protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): Seq[NamedInnerSuggestion] = {
     val findInduct = findInductiveHypothesisApplication(e, ihses)
     val newThms = thms ++ findInduct
-    
-    val A = TypeParameter.fresh("A")
-    val f = ("f" :: (A =>: A)).toVariable
-    val v0 = ("v0" :: (A =>: A)).toVariable
-    println(unify(dsl.forall("x" :: A) { x => f(x) }, dsl.forall("y" :: A) { y => v0(y) }, Set(v0)))
-
     collectInvocations(e) ++ findTheoremApplications(e, newThms)
   }
 

@@ -25,6 +25,16 @@ trait Assistant
 
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
 
+  implicit class ReachableTheorems(ctx: ReflectedContext) {
+    import scastie.welder.codegen.ScalaAST.Implicits._
+    import theory._
+
+    lazy val reachableTheorems = ctx.collect {
+      case (name, thm: Theorem)          => (name, thm)
+      case (name, Success(thm: Theorem)) => (name `.` "get", thm)
+    }
+  }
+
   def suggest(expr: Expr)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
     suggestTopLevel(expr) flatMap {
       case (name, sugg) =>
@@ -38,19 +48,8 @@ trait Assistant
   type ASTContext = (ScalaAST, ScalaAST, ScalaAST) => ScalaAST
 
   def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
-    object Theorem {
-      import scastie.welder.codegen.ScalaAST.Implicits._
-      
-      def unapply(v: Any): Option[(theory.Theorem, ScalaAST => ScalaAST)] = v match {
-        case t: theory.Theorem => Some((t, identity))
-        case a: theory.Attempt[_] if a.isSuccessful && a.get.isInstanceOf[theory.Theorem] =>
-          Some((a.get.asInstanceOf[theory.Theorem], _ `.` "get"))
-        case _ => None
-      }
-    }
-
-    val thms = reflCtx.collect {
-      case (path, Theorem(thm, fullPath)) => (codeGen.generateScalaCode(path), Result(theory.Var(codeGen.generateScalaCode(fullPath(path))), thm.expression))
+    val thms = reflCtx.reachableTheorems.map {
+      case (path, thm) => (codeGen.generateScalaCode(path), Result(theory.Axiom(thm), thm.expression))
     } toMap
 
     val ihses = reflCtx.collect {
