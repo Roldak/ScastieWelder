@@ -17,8 +17,10 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
   private val isNotWildcard = (x: String) => x != "_"
 
+  private type Namer = Int => String
+
   private object BasicNamer {
-    def apply(id: String): Int => String = i =>
+    def apply(id: String): Namer = i =>
       if (i == 0) id
       else if (i == 1) s"${id(0)}"
       else s"${id}_${i - 1}"
@@ -37,7 +39,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
   private case class Synthesizer(reflectedContext: ReflectedContext) {
     @tailrec
-    private def chooseName(namer: Int => String, i: Int = 0): String = {
+    private def chooseName(namer: Namer, i: Int = 0): String = {
       val name = namer(i)
       if (reflectedContext.existsPath(Raw(name))) chooseName(namer, i + 1)
       else name
@@ -47,18 +49,19 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       if (reflectedContext.existsPath(name)) None
       else Some(copy(reflectedContext = reflectedContext.updated(name, value)))
 
-    private def updatedVar(value: Any, namer: Int => String): (String, Synthesizer) = {
+    private def updatedVar(value: Any, namer: Namer): (String, Synthesizer) = {
       val name = chooseName(namer)
       (name, copy(reflectedContext = reflectedContext.updated(Raw(name), value)))
     }
 
-    private def updatedVars(elems: Seq[(Any, Int => String)]): (Seq[String], Synthesizer) = elems.foldLeft((Seq.empty[String], this)) {
+    private def updatedVars(elems: Seq[(Any, Namer)]): (Seq[String], Synthesizer) = elems.foldLeft((Seq.empty[String], this)) {
       case ((names, synth), (value, namer)) =>
         val (name, newSynth) = synth.updatedVar(value, namer)
         (names :+ name, newSynth)
     }
 
-    private def updatedVarsThen[T](elems: Seq[(Any, Int => String)])(f: (Seq[String], Synthesizer) => T): T = f.tupled(updatedVars(elems))
+    private def updatedVarThen[T](value: Any, namer: Namer)(f: (String, Synthesizer) => T): T = f.tupled(updatedVar(value, namer))
+    private def updatedVarsThen[T](elems: Seq[(Any, Namer)])(f: (Seq[String], Synthesizer) => T): T = f.tupled(updatedVars(elems))
 
     private lazy val rewriteRules = reflectedContext.collect {
       case (name, rule: RewriteRule) => (name, rule)
@@ -70,13 +73,52 @@ trait Synthesizers extends ExprOps { self: Assistant =>
     }
 
     private object Rewritten {
-      def unapply(e: Expr): Option[ScalaAST] = {
+      def unapply(e: Expr): Option[(ScalaAST, Seq[Expr])] = {
         rewriteRules.flatMap {
           case (name, rule) =>
             unify(rule.pattern, e, rule.holes.toSet) map { subst =>
-              name(rule.holes.map(subst).map(synthesizeExpr))
+              (name, rule.holes.map(subst))
             }
         } reduceOption ((a, b) => if (a.toString.size < b.toString.size) a else b)
+      }
+    }
+
+    private object ExprNamer {
+      def apply(fallback: Namer)(expr: Expr): Namer = {
+        def inner(expr: Expr, lvl: Int): String = {
+          def innerRec(expr: Expr) = inner(expr, lvl - 1)
+          def innerRecs(exprs: Iterable[Expr], sep: String = "") = exprs map innerRec mkString sep
+          
+          expr match {
+            case Reflected(Raw(name)) if lvl == 0 => name
+
+            case Rewritten(Raw(name), exprs) =>
+              if (lvl == 0) name
+              else s"$name${innerRecs(exprs)}"
+
+            case Variable(id, _, _) if lvl == 0 => id.name
+
+            case FunctionInvocation(id, tps, args) =>
+              if (lvl == 0) id.name
+              else s"${id.name}${innerRecs(args)}"
+
+            case Equals(lhs, rhs) =>
+              if (lvl == 0) "eq"
+              else s"${inner(lhs, lvl - 1)}Is${innerRec(rhs)}"
+
+            case And(exprs) =>
+              if (lvl == 0) "cunj"
+              else s"${innerRecs(exprs, "And")}"
+
+            case Or(exprs) =>
+              if (lvl == 0) "cunj"
+              else s"${innerRecs(exprs, "Or")}"
+
+            case _ => fallback(lvl)
+          }
+        }
+
+        (x: Int) => inner(expr, x)
       }
     }
 
@@ -99,7 +141,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
       expr match {
         case Reflected(name) => name
-        case Rewritten(ast) => ast
+        case Rewritten(name, exprs) => name(exprs map synthesizeExpr)
         case Variable(id, tpe, flags) => Raw(id.name)
         case Forall(vds, body) => Raw("forall")(vds map synthesizeValDef)(Function(vds map (_.id.name), synthesizeExpr(body)))
         case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)
@@ -160,18 +202,19 @@ trait Synthesizers extends ExprOps { self: Assistant =>
         case SplitCases => expr match {
           case And(exprs) =>
             val parts = exprs.zipWithIndex map {
-              case (e, i) => ValDef(s"part$i", suggest(e))
+              case (e, i) => ValDef(chooseName(BasicNamer(s"part${i + 1}")), suggest(e))
             }
             Block(parts :+ Raw("andI")(parts.map { case ValDef(ValDecl(name, _), _) => Raw(name) }))
         }
 
-        case FixVariable => expr match {
-          case Forall(Seq(v), body) =>
-            Raw("forallI")(synthesizeValDef(v))(Function(Seq(v.id.name), suggest(body)))
-
-          case Forall(v +: vs, body) =>
-            Raw("forallI")(synthesizeValDef(v))(Function(Seq(v.id.name), suggest(Forall(vs, body))))
-        }
+        case FixVariable =>
+          val (v, body) = expr match {
+            case Forall(Seq(v), body)  => (v, body)
+            case Forall(v +: vs, body) => (v, Forall(vs, body))
+          }
+          updatedVarThen(v, BasicNamer(v.id.name)) { (name, synth) =>
+            Raw("forallI")(synthesizeValDef(v))(Function(Seq(name), synth.suggest(body)))
+          }
 
         case StructuralInduction =>
           val (v, body) = expr match {
@@ -193,7 +236,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
         case AssumeHypothesis => expr match {
           case Implies(hyp, body) =>
-            Raw("implI")(synthesizeExpr(hyp))(Function(Seq("thm"), suggest(body)))
+            Raw("implI")(synthesizeExpr(hyp))(Function(Seq(chooseName(ExprNamer(BasicNamer("thm"))(hyp))), suggest(body)))
         }
 
         case ToChain => expr match {
