@@ -12,10 +12,10 @@ class Macros(val c: Context)
   
   assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
 
-  private val preludeOffset = 354 // hardcoded for now
+  private def originalPos(pos: Int): Tree = q"""OriginalFile.getOriginalPos($pos)"""
 
-  private val start = c.macroApplication.pos.start - preludeOffset
-  private val end = c.macroApplication.pos.end - preludeOffset
+  private val start = originalPos(c.macroApplication.pos.start)
+  private val end = originalPos(c.macroApplication.pos.end)
   
   lazy val rewriteAnnotationType = c.prefix.tree.tpe.member(TypeName("rewrite")).asType.toTypeIn(c.prefix.tree.tpe)
   
@@ -62,9 +62,9 @@ class Macros(val c: Context)
 
   private lazy val chainContextInit: Tree = {
     def copyOf(t: Tree): Tree = {
-      val start = t.pos.start - preludeOffset
-      val end = t.pos.end - preludeOffset
-      q"""Raw("%%%" + ${start.toString} + "->" + ${end.toString} + "%%%")"""
+      val start = originalPos(t.pos.start)
+      val end = originalPos(t.pos.end)
+      q"""Raw("%%%" + $start + "->" + $end + "%%%")"""
     }
 
     val LHS: Int = 0
@@ -116,12 +116,12 @@ class Macros(val c: Context)
 
     val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
 
-    val chainStart = enclosingOpChain.pos.start - preludeOffset
-    val chainEnd = enclosingOpChain.pos.end - preludeOffset
+    val chainStart = originalPos(enclosingOpChain.pos.start)
+    val chainEnd = originalPos(enclosingOpChain.pos.end)
 
     q"""
 	    ({
-	      import com.olegych.scastie.api._  
+	      import com.olegych.scastie.api._
 	      val reflCtx = ${reflectedContext}
 	      val codeGen = new scastie.welder.codegen.NaiveGenerator
 	      val (lhs, op, rhs) = ($lhs, $op, $rhs)

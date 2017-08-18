@@ -111,7 +111,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
               else s"${innerRecs(exprs, "And")}"
 
             case Or(exprs) =>
-              if (lvl == 0) "cunj"
+              if (lvl == 0) "disj"
               else s"${innerRecs(exprs, "Or")}"
 
             case _ => fallback(lvl)
