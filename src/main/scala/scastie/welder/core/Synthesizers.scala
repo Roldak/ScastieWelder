@@ -88,7 +88,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
         def inner(expr: Expr, lvl: Int): String = {
           def innerRec(expr: Expr) = inner(expr, lvl - 1)
           def innerRecs(exprs: Iterable[Expr], sep: String = "") = exprs map innerRec mkString sep
-          
+
           expr match {
             case Reflected(Raw(name)) if lvl == 0 => name
 
@@ -140,10 +140,13 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       def synthesizeInfixOp(lhs: Expr, op: String, rhs: Expr): ScalaAST = (synthesizeExpr(lhs) `.` op)(synthesizeExpr(rhs))
 
       expr match {
-        case Reflected(name) => name
+        case Reflected(name)        => name
         case Rewritten(name, exprs) => name(exprs map synthesizeExpr)
-        case Variable(id, tpe, flags) => Raw(id.name)
-        case Forall(vds, body) => Raw("forall")(vds map synthesizeValDef)(Function(vds map (_.id.name), synthesizeExpr(body)))
+
+        case Forall(vds, body) => updatedVarsThen(vds.map(v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
+          Raw("forall")(vds map synthesizeValDef)(Function(names, synth.synthesizeExpr(body)))
+        }
+
         case Implies(hyp, concl) => synthesizeInfixOp(hyp, "==>", concl)
         case Equals(lhs, rhs) => synthesizeInfixOp(lhs, "===", rhs)
         case And(Seq(lhs, rhs)) => synthesizeInfixOp(lhs, "&&", rhs)
@@ -157,6 +160,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
         case IfExpr(cond, then, elz) => Raw("ite")(synthesizeExpr(cond), synthesizeExpr(then), synthesizeExpr(elz))
         case IsInstanceOf(expr, tpe) => (synthesizeExpr(expr) `.` "isInstOf")(synthesizeType(tpe))
         case AsInstanceOf(expr, tpe) => (synthesizeExpr(expr) `.` "asInstOf")(synthesizeType(tpe))
+
         case _ => throw new SynthesisError(s"Could not synthesize expression ${expr} (${expr.getClass})")
       }
     }
@@ -176,20 +180,28 @@ trait Synthesizers extends ExprOps { self: Assistant =>
     }
 
     private def synthesizeProof(proof: Proof): ScalaAST = proof match {
-      case Reflected(name)             => name
-      case Var(id)                     => Raw(id)
-      case Axiom(Reflected(thm))       => thm
-      case ImplI(id, hyp, concl)       => Raw("implI")(synthesizeExpr(hyp))(Function(Seq(id), synthesizeProof(concl)))
-      case ImplE(impl, hyp)            => Raw("implE")(synthesizeProof(impl))(Function(Seq("goal"), (Raw("goal") `.` "by")(synthesizeProof(hyp))))
-      case ForallI(v, body)            => Raw("forallI")(synthesizeValDef(v))(Function(Seq(v.id.name), synthesizeProof(body)))
+      case Reflected(name)       => name
+      case Axiom(Reflected(thm)) => thm
+
+      case ForallI(v, body) => updatedVarThen(v, BasicNamer(v.id.name)) { (name, synth) =>
+        Raw("forallI")(synthesizeValDef(v))(Function(Seq(name), synth.synthesizeProof(body)))
+      }
+      case ImplI(id, hyp, concl) => updatedVarThen(Var(id), BasicNamer(id)) { (name, synth) =>
+        Raw("implI")(synthesizeExpr(hyp))(Function(Seq(name), synth.synthesizeProof(concl)))
+      }
+      case Let(named, id, body) => updatedVarThen(Var(id), BasicNamer(id)) { (name, synth) =>
+        Block(Seq(ValDef(name, synthesizeProof(named)), synth.synthesizeProof(body)))
+      }
+
       case ForallE(quantified, value)  => Raw("forallE")(synthesizeProof(quantified))(synthesizeExpr(value))
+      case ImplE(impl, hyp)            => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
       case AndI(proofs)                => Raw("andI")(proofs map synthesizeProof)
       case AndE(cunj, parts, body)     => synthesizeAndE(cunj, parts, body)
-      case OrI(alternatives, thm)      => Raw("orI")(alternatives map synthesizeExpr)(Function(Seq("goal"), (Raw("goal") `.` "by")(synthesizeProof(thm))))
+      case OrI(alternatives, thm)      => Raw("orI")(alternatives map synthesizeExpr)((Raw("_") `.` "by")(synthesizeProof(thm)))
       case OrE(disj, concl, id, cases) => ???
       case Prove(expr, hyps)           => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
-      case Let(named, id, body)        => Block(Seq(ValDef(id, synthesizeProof(named)), synthesizeProof(body)))
 
+      case Var(id)                     => throw new SynthesisError("Could not find variable $id")
       case Axiom(notfound)             => throw new SynthesisError("Could not find reference to $notfound")
     }
 
