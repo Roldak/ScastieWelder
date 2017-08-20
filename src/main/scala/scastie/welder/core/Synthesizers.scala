@@ -37,6 +37,14 @@ trait Synthesizers extends ExprOps { self: Assistant =>
     inner(pattern, values)
   }
 
+  private object FlattenedForallE {
+    def unapply(p: Proof): Option[(Proof, Seq[Expr])] = p match {
+      case ForallE(FlattenedForallE(quantified, values), v) => Some(quantified, values :+ v)
+      case ForallE(quantified, v) => Some(quantified, Seq(v))
+      case _ => None
+    }
+  }
+
   private case class Synthesizer(reflectedContext: ReflectedContext) {
     @tailrec
     private def chooseName(namer: Namer, i: Int = 0): String = {
@@ -193,16 +201,16 @@ trait Synthesizers extends ExprOps { self: Assistant =>
         Block(Seq(ValDef(name, synthesizeProof(named)), synth.synthesizeProof(body)))
       }
 
-      case ForallE(quantified, value)  => Raw("forallE")(synthesizeProof(quantified))(synthesizeExpr(value))
-      case ImplE(impl, hyp)            => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
-      case AndI(proofs)                => Raw("andI")(proofs map synthesizeProof)
-      case AndE(cunj, parts, body)     => synthesizeAndE(cunj, parts, body)
-      case OrI(alternatives, thm)      => Raw("orI")(alternatives map synthesizeExpr)((Raw("_") `.` "by")(synthesizeProof(thm)))
-      case OrE(disj, concl, id, cases) => ???
-      case Prove(expr, hyps)           => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
+      case FlattenedForallE(expr, terms) => Raw("forallE")(synthesizeProof(expr))(terms map synthesizeExpr)
+      case ImplE(impl, hyp)              => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
+      case AndI(proofs)                  => Raw("andI")(proofs map synthesizeProof)
+      case AndE(cunj, parts, body)       => synthesizeAndE(cunj, parts, body)
+      case OrI(alternatives, thm)        => Raw("orI")(alternatives map synthesizeExpr)((Raw("_") `.` "by")(synthesizeProof(thm)))
+      case OrE(disj, concl, id, cases)   => ???
+      case Prove(expr, hyps)             => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
 
-      case Var(id)                     => throw new SynthesisError("Could not find variable $id")
-      case Axiom(notfound)             => throw new SynthesisError("Could not find reference to $notfound")
+      case Var(id)                       => throw new SynthesisError(s"Could not find variable $id")
+      case Axiom(notfound)               => throw new SynthesisError(s"Could not find reference to $notfound")
     }
 
     def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion): ScalaAST = {
