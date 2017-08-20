@@ -173,6 +173,18 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       }
     }
 
+    private def synthesizeForallI(vd: trees.ValDef)(f: Synthesizer => ScalaAST): ScalaAST = {
+      updatedVarThen(vd, BasicNamer(vd.id.name)) { (name, synth) =>
+        Raw("forallI")(synthesizeValDef(vd))(Function(Seq(name), f(synth)))
+      }
+    }
+
+    private def synthesizeImplI(id: MetaIdentifier, hyp: Expr)(f: Synthesizer => ScalaAST): ScalaAST = {
+      updatedVarThen(Var(id), ExprNamer(BasicNamer(id))(hyp)) { (name, synth) =>
+        Raw("implI")(synthesizeExpr(hyp))(Function(Seq(name), f(synth)))
+      }
+    }
+
     private def synthesizeAndE(cunj: Proof, parts: Seq[theory.MetaIdentifier], body: Proof): ScalaAST = {
       val shortened: Option[ScalaAST] = if (parts.count(isNotWildcard) == 1) {
         val idx = parts.indexWhere(isNotWildcard)
@@ -188,29 +200,27 @@ trait Synthesizers extends ExprOps { self: Assistant =>
     }
 
     private def synthesizeProof(proof: Proof): ScalaAST = proof match {
-      case Reflected(name)       => name
-      case Axiom(Reflected(thm)) => thm
+      case Reflected(name)                 => name
+      case Axiom(Reflected(thm))           => thm
+      case SIHypothesis(Reflected(ihs), e) => (ihs `.` "hypothesis")(synthesizeExpr(e))
 
-      case ForallI(v, body) => updatedVarThen(v, BasicNamer(v.id.name)) { (name, synth) =>
-        Raw("forallI")(synthesizeValDef(v))(Function(Seq(name), synth.synthesizeProof(body)))
-      }
-      case ImplI(id, hyp, concl) => updatedVarThen(Var(id), BasicNamer(id)) { (name, synth) =>
-        Raw("implI")(synthesizeExpr(hyp))(Function(Seq(name), synth.synthesizeProof(concl)))
-      }
+      case ForallI(vd, body)               => synthesizeForallI(vd)(_.synthesizeProof(body))
+      case FlattenedForallE(expr, terms)   => Raw("forallE")(synthesizeProof(expr))(terms map synthesizeExpr)
+      case ImplI(id, hyp, concl)           => synthesizeImplI(id, hyp)(_.synthesizeProof(concl))
+      case ImplE(impl, hyp)                => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
+      case AndI(proofs)                    => Raw("andI")(proofs map synthesizeProof)
+      case AndE(cunj, parts, body)         => synthesizeAndE(cunj, parts, body)
+      case OrI(alternatives, thm)          => Raw("orI")(alternatives map synthesizeExpr)((Raw("_") `.` "by")(synthesizeProof(thm)))
+      case OrE(disj, concl, id, cases)     => ???
+      case Prove(expr, hyps)               => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
+
       case Let(named, id, body) => updatedVarThen(Var(id), BasicNamer(id)) { (name, synth) =>
         Block(Seq(ValDef(name, synthesizeProof(named)), synth.synthesizeProof(body)))
       }
 
-      case FlattenedForallE(expr, terms) => Raw("forallE")(synthesizeProof(expr))(terms map synthesizeExpr)
-      case ImplE(impl, hyp)              => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
-      case AndI(proofs)                  => Raw("andI")(proofs map synthesizeProof)
-      case AndE(cunj, parts, body)       => synthesizeAndE(cunj, parts, body)
-      case OrI(alternatives, thm)        => Raw("orI")(alternatives map synthesizeExpr)((Raw("_") `.` "by")(synthesizeProof(thm)))
-      case OrE(disj, concl, id, cases)   => ???
-      case Prove(expr, hyps)             => Raw("prove")(synthesizeExpr(expr) +: (hyps map synthesizeProof))
+      case Axiom(notfound) => throw new SynthesisError(s"Could not find reference to theorem $notfound")
 
-      case Var(id)                       => throw new SynthesisError(s"Could not find variable $id")
-      case Axiom(notfound)               => throw new SynthesisError(s"Could not find reference to $notfound")
+      case _: Var          => throw new SynthesisError(s"Cannot synthesize proof term ${proof} (${proof.getClass})")
     }
 
     def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion): ScalaAST = {
@@ -227,14 +237,10 @@ trait Synthesizers extends ExprOps { self: Assistant =>
             Block(parts :+ Raw("andI")(parts.map { case ValDef(ValDecl(name, _), _) => Raw(name) }))
         }
 
-        case FixVariable =>
-          val (v, body) = expr match {
-            case Forall(Seq(v), body)  => (v, body)
-            case Forall(v +: vs, body) => (v, Forall(vs, body))
-          }
-          updatedVarThen(v, BasicNamer(v.id.name)) { (name, synth) =>
-            Raw("forallI")(synthesizeValDef(v))(Function(Seq(name), synth.suggest(body)))
-          }
+        case FixVariable => expr match {
+          case Forall(Seq(vd), body)  => synthesizeForallI(vd)(_.suggest(body))
+          case Forall(vd +: vs, body) => synthesizeForallI(vd)(_.suggest(Forall(vs, body)))
+        }
 
         case StructuralInduction =>
           val (v, body) = expr match {
@@ -242,21 +248,26 @@ trait Synthesizers extends ExprOps { self: Assistant =>
             case Forall(v +: vs, body) => (v, Forall(vs, body))
           }
 
-          val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
-            case (Reflected(constrId), expr, vars) => updatedVarsThen(vars map (v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
-              Case(
-                Unapply(Raw("C"), "constr" +: names),
-                Some((Raw("constr") `.` "==")(constrId)),
-                synth.suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
-            }
+          val prop = updatedVarThen(v, BasicNamer(v.id.name)) { (name, synth) =>
+            Function(Seq(ValDecl(name, Some(Raw("Expr")))), synth.synthesizeExpr(body))
           }
 
-          Raw("structuralInduction")(Function(Seq(ValDecl(v.id.name, Some(Raw("Expr")))), synthesizeExpr(body)), synthesizeValDef(v))(
-            PartialFunction(Seq(Case(Unapply(Raw(""), Seq("ihs", "goal")), None, Match(Raw("ihs") `.` "expression", cases)))))
+          updatedVarsThen(Seq(((), BasicNamer("ihs")), ((), BasicNamer("goal")))) { (names, synth) =>
+            val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
+              case (Reflected(constrId), expr, vars) => synth.updatedVarsThen(vars map (v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
+                Case(
+                  Unapply(Raw("C"), "constr" +: names),
+                  Some((Raw("constr") `.` "==")(constrId)),
+                  synth.suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
+              }
+            }
+
+            Raw("structuralInduction")(prop, synthesizeValDef(v))(
+              PartialFunction(Seq(Case(Unapply(Raw(""), names), None, Match(Raw(names.head) `.` "expression", cases)))))
+          }
 
         case AssumeHypothesis => expr match {
-          case Implies(hyp, body) =>
-            Raw("implI")(synthesizeExpr(hyp))(Function(Seq(chooseName(ExprNamer(BasicNamer("thm"))(hyp))), suggest(body)))
+          case Implies(hyp, body) => synthesizeImplI("thm", hyp)(_.suggest(body))
         }
 
         case ToChain => expr match {

@@ -298,7 +298,7 @@ protected[core] trait Analysers extends PathTreeOps with ExprOps { self: Assista
   /*
    * Finds expressions which can be applied to the inductive hypothesis in order to generate a new theorem.
    */
-  private def findInductiveHypothesisApplication(e: Expr, ihses: Map[String, StructuralInductionHypothesis]): Map[String, Result] = {
+  protected[core] def findInductiveHypothesisApplication(e: Expr, ihses: Map[String, StructuralInductionHypothesis]): Map[String, Result] = {
     val ihset = ihses.toSet
     val thms = collect[(String, Result)] { e: Expr =>
       ihset.flatMap {
@@ -318,10 +318,8 @@ protected[core] trait Analysers extends PathTreeOps with ExprOps { self: Assista
   /*
    * Generates all suggestions by analyzing the given root expression and the theorems/IHS that are available.
    */
-  protected[core] def analyse(e: Expr, thms: Map[String, Result], ihses: Map[String, StructuralInductionHypothesis]): Seq[NamedInnerSuggestion] = {
-    val findInduct = findInductiveHypothesisApplication(e, ihses)
-    val newThms = thms ++ findInduct
-    collectInvocations(e) ++ findTheoremApplications(e, newThms)
+  protected[core] def analyse(e: Expr, thms: Map[String, Result]): Seq[NamedInnerSuggestion] = {
+    collectInvocations(e) ++ findTheoremApplications(e, thms)
   }
 
   /*

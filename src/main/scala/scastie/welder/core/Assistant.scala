@@ -24,6 +24,8 @@ trait Assistant
   }
 
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
+  
+  private def tuple2Append[A, B, C](tuple: (A, B), elem: C): (A, B, C) = (tuple._1, tuple._2, elem) 
 
   implicit class ReachableTheorems(ctx: ReflectedContext) {
     import scastie.welder.codegen.ScalaAST.Implicits._
@@ -50,29 +52,20 @@ trait Assistant
   def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
     val thms = reflCtx.reachableTheorems.map {
       case (path, thm) => (codeGen.generateScalaCode(path), Result(theory.Axiom(thm), thm.expression))
-    } toMap
+    }.toMap
 
     val ihses = reflCtx.collect {
       case (path, ihs: theory.StructuralInductionHypotheses) =>
-        val hyp = { (e: Expr) =>
-          val thm = ihs.hypothesis(e)
+        def hyp(e: Expr) = ihs.hypothesis(e) map (thm => Result(theory.SIHypothesis(ihs, e), thm.expression))
+        val sih = StructuralInductionHypothesis(ihs.constructor, ihs.expression, hyp, ihs.variables)
+        (codeGen.generateScalaCode(path), sih)
+    }.toMap
 
-          // TODO: add structural induction support to Welder Proofs
-          thm map (thm => Result(theory.Var(codeGen.generateScalaCode(path)), thm.expression))
-        }
-
-        (codeGen.generateScalaCode(path), StructuralInductionHypothesis(
-          ihs.constructor,
-          ihs.expression,
-          hyp,
-          ihs.variables))
-    } toMap
-
-    val lhsSuggs = analyse(lhs, thms, ihses) map { case (name, sugg) => (name, contextForLHS, sugg) }
-    val rhsSuggs = analyse(rhs, thms, ihses) map { case (name, sugg) => (name, contextForRHS, sugg) }
+    val lhsSuggs = analyse(lhs, thms ++ findInductiveHypothesisApplication(lhs, ihses)).map(tuple2Append(_, contextForLHS))
+    val rhsSuggs = analyse(rhs, thms ++ findInductiveHypothesisApplication(rhs, ihses)).map(tuple2Append(_, contextForRHS))
 
     val results = (lhsSuggs ++ rhsSuggs) flatMap {
-      case (name, ctx, sugg) =>
+      case (name, sugg, ctx) =>
         util.Try(synthesizeInner(sugg)(reflCtx)) map {
           case (res, proof, recsugg) => (resultExprOf(sugg), ctx, name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
         } match {
