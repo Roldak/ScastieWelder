@@ -9,14 +9,14 @@ class Macros(val c: Context)
     with ContextAnalysis {
 
   import c.universe._
-  
+
   assert(c.prefix.actualType <:< c.typeOf[AssistedTheory])
 
   private def originalPos(pos: Int): Tree = q"""OriginalFile.getOriginalPos($pos)"""
 
   private val start = originalPos(c.macroApplication.pos.start)
   private val end = originalPos(c.macroApplication.pos.end)
-  
+
   lazy val rewriteAnnotationType = c.prefix.tree.tpe.member(TypeName("rewrite")).asType.toTypeIn(c.prefix.tree.tpe)
   
   lazy val reflectedContext = {
@@ -38,22 +38,28 @@ class Macros(val c: Context)
 
         rewrite.name.toString -> res
     }.toMap
-    
+
     q"scastie.welder.core.ReflectedContext($values ++ $rewrites)"
   }
+  
+  lazy val expansionInit = q"""
+      import com.olegych.scastie.api._
+	    val reflCtx = ${reflectedContext}
+	    val codeGen = new scastie.welder.codegen.NaiveGenerator
+	    val assistant = scastie.welder.core.Assistant(${c.prefix}, codeGen)
+    """
 
   def suggest(expr: Tree): Tree = {
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).suggest(expr)(reflCtx)"""
+    val call = q"""assistant.suggest(expr)(reflCtx)"""
 
     q"""
 	    {
-	      import com.olegych.scastie.api._
-	      val reflCtx = ${reflectedContext}
-	      val codeGen = new scastie.welder.codegen.NaiveGenerator
+	      ..$expansionInit
+	      
 	      val expr = $expr
-        val str = "<h1>Select suggestion to apply</h1>" + $call.map { case scastie.welder.core.SynthesizedSuggestion(name, replacement) =>
-          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button><br>"
-        }.mkString("\n")
+        val str = "<h1>Select suggestion to apply</h1><br><br>" + $call.map { case assistant.SynthesizedTopLevelSuggestion(name, replacement) =>
+          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button>"
+        }.mkString(" ")
 	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
 	      prove(expr)
 	    }
@@ -114,23 +120,23 @@ class Macros(val c: Context)
   def suggestInline: Tree = {
     val OpChainSegment(lhs, op, rhs, proof) = enclosingOpSegment
 
-    val call = q"""scastie.welder.core.Assistant(${c.prefix}, codeGen).inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
+    val call = q"""assistant.inlineSuggest(lhs, op, rhs)(contextForLHS, contextForRHS)(reflCtx)"""
 
     val chainStart = originalPos(enclosingOpChain.pos.start)
     val chainEnd = originalPos(enclosingOpChain.pos.end)
 
     q"""
 	    ({
-	      import com.olegych.scastie.api._
-	      val reflCtx = ${reflectedContext}
-	      val codeGen = new scastie.welder.codegen.NaiveGenerator
+	      ..$expansionInit
+	      
 	      val (lhs, op, rhs) = ($lhs, $op, $rhs)
 	      
 	      ..$chainContextInit
 	      
-        val str = "<h1>Select suggestion to apply</h1>" + $call.map { case scastie.welder.core.SynthesizedSuggestion(name, replacement) =>
-          "<button onclick='ScastieExports.replaceCode(" + $chainStart + ", " + $chainEnd + ", \"" + replacement + "\")'>" + name + "</button><br>"
-        }.mkString("\n")
+        val str = "<h1>Select suggestion to apply</h1><br><br>" + $call.map { case assistant.SynthesizedInnerSuggestion(name, replacement, expr) =>
+          "<button onclick='ScastieExports.replaceCode(" + $chainStart + ", " + $chainEnd + ", \"" + replacement + "\")'>" + name + "</button>" +
+          " Preview: " + expr.toString + "<br>"
+        }.mkString(" ")
 	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
 	      truth
 	    })

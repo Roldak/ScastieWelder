@@ -247,6 +247,9 @@ protected[core] trait Analysers extends PathTreeOps with ExprOps { self: Assista
     }
   }
 
+  private def shortestInstantiation(a: (Expr, Expr, Result), b: (Expr, Expr, Result)) = 
+    if (a._3.proof.toString.size < b._3.proof.toString.size) a else b
+  
   /*
    * Given a root expression expr and a root theorem thm,
    * tries to find subexpressions inside expr where some conclusion of thm could be applied.
@@ -269,7 +272,7 @@ protected[core] trait Analysers extends PathTreeOps with ExprOps { self: Assista
             case _ => Nil
           }
       }
-    }(expr).groupBy(x => (x._1, x._2)).map(_._2.head).toSeq
+    }(expr).groupBy(x => (x._1, x._2)).map(_._2.reduce(shortestInstantiation)).toSeq
   }
 
   /*

@@ -6,8 +6,6 @@ import inox.trees._
 import scastie.welder._
 import scastie.welder.codegen._
 
-case class SynthesizedSuggestion(title: String, code: String)
-
 trait Assistant
     extends Suggestions
     with Analysers
@@ -18,14 +16,17 @@ trait Assistant
 
   case class Result(proof: theory.Proof, expression: Expr)
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
+  
+  case class SynthesizedTopLevelSuggestion(title: String, code: String)
+  case class SynthesizedInnerSuggestion(title: String, code: String, resultExpr: Expr)
 
   private def resultExprOf(sugg: InnerSuggestion): Expr = sugg match {
     case RewriteSuggestion(_, res, _) => res
   }
 
   private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
-  
-  private def tuple2Append[A, B, C](tuple: (A, B), elem: C): (A, B, C) = (tuple._1, tuple._2, elem) 
+
+  private def tuple2Append[A, B, C](tuple: (A, B), elem: C): (A, B, C) = (tuple._1, tuple._2, elem)
 
   implicit class ReachableTheorems(ctx: ReflectedContext) {
     import scastie.welder.codegen.ScalaAST.Implicits._
@@ -37,10 +38,10 @@ trait Assistant
     }
   }
 
-  def suggest(expr: Expr)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
+  def suggest(expr: Expr)(reflCtx: ReflectedContext): Seq[SynthesizedTopLevelSuggestion] = {
     suggestTopLevel(expr) flatMap {
       case (name, sugg) =>
-        util.Try(synthesizeTopLevel(expr, sugg)(reflCtx)) map (synthed => SynthesizedSuggestion(name, escapeProperly(codeGen.generateScalaCode(synthed)))) match {
+        util.Try(synthesizeTopLevel(expr, sugg)(reflCtx)).map(res => SynthesizedTopLevelSuggestion(name, escapeProperly(codeGen.generateScalaCode(res)))) match {
           case util.Success(synthsugg) => Some(synthsugg)
           case util.Failure(error)     => println(error); None
         }
@@ -49,7 +50,10 @@ trait Assistant
 
   type ASTContext = (ScalaAST, ScalaAST, ScalaAST) => ScalaAST
 
-  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext)(reflCtx: ReflectedContext): Seq[SynthesizedSuggestion] = {
+  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)
+      (contextForLHS: ASTContext, contextForRHS: ASTContext)
+      (reflCtx: ReflectedContext): Seq[SynthesizedInnerSuggestion] = {
+    
     val thms = reflCtx.reachableTheorems.map {
       case (path, thm) => (codeGen.generateScalaCode(path), Result(theory.Axiom(thm), thm.expression))
     }.toMap
@@ -75,7 +79,7 @@ trait Assistant
     }
 
     val uniques = results.groupBy(x => (x._1, x._2)).mapValues(_.minBy(_._4.size)).toSeq.map {
-      case (_, (_, _, name, code)) => SynthesizedSuggestion(name, code)
+      case (_, (res, _, name, code)) => SynthesizedInnerSuggestion(name, code, res)
     }
 
     uniques
