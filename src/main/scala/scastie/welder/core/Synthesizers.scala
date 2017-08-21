@@ -255,9 +255,12 @@ trait Synthesizers extends ExprOps { self: Assistant =>
           updatedVarsThen(Seq(((), BasicNamer("ihs")), ((), BasicNamer("goal")))) { (names, synth) =>
             val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
               case (Reflected(constrId), expr, vars) => synth.updatedVarsThen(vars map (v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
-                Case(
-                  Unapply(Raw("C"), "constr" +: names),
-                  Some((Raw("constr") `.` "==")(constrId)),
+                val (constrPat: Pattern, guard) = constrId match {
+                  case Raw(id) => (BackTicks(id), None)
+                  case _       => (Raw("constr"), Some((Raw("constr") `.` "==")(constrId)))
+                }
+
+                Case(Unapply(Raw("C"), constrPat +: (names: Seq[Pattern])), guard,
                   synth.suggest(exprOps.replaceFromSymbols(Map(v -> expr), body)))
               }
             }
@@ -276,14 +279,27 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       }
     }
 
-    def synthesizeInner(sugg: InnerSuggestion): (ScalaAST, ScalaAST, ScalaAST) = {
+    def synthesizeInner(side: Expr, otherSide: Expr, sugg: InnerSuggestion): (ScalaAST, ScalaAST, ScalaAST) = {
       sugg match {
         case RewriteSuggestion(_, res, proof) =>
-          (synthesizeExpr(res), synthesizeProof(proof.proof), inlineSuggest)
+          val synthedProof = proof.proof match {
+            case Prove(Equals(`side`, `res`), Seq()) => Raw("trivial")
+            case other                               => synthesizeProof(other)
+          }
+
+          val nextProof = prove(Equals(res, otherSide)) match {
+            case Success(_) => Raw("trivial")
+            case _          => inlineSuggest
+          }
+
+          (synthesizeExpr(res), synthedProof, nextProof)
       }
     }
   }
 
-  def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion)(ctx: ReflectedContext): ScalaAST = Synthesizer(ctx).synthesizeTopLevel(expr, sugg)
-  def synthesizeInner(sugg: InnerSuggestion)(ctx: ReflectedContext): (ScalaAST, ScalaAST, ScalaAST) = Synthesizer(ctx).synthesizeInner(sugg)
+  def synthesizeTopLevel(expr: Expr, sugg: TopLevelSuggestion)(ctx: ReflectedContext): ScalaAST =
+    Synthesizer(ctx).synthesizeTopLevel(expr, sugg)
+
+  def synthesizeInner(side: Expr, otherSide: Expr, sugg: InnerSuggestion)(ctx: ReflectedContext): (ScalaAST, ScalaAST, ScalaAST) =
+    Synthesizer(ctx).synthesizeInner(side, otherSide, sugg)
 }

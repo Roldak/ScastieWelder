@@ -16,7 +16,7 @@ trait Assistant
 
   case class Result(proof: theory.Proof, expression: Expr)
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
-  
+
   case class SynthesizedTopLevelSuggestion(title: String, code: String)
   case class SynthesizedInnerSuggestion(title: String, code: String, resultExpr: Expr)
 
@@ -50,10 +50,7 @@ trait Assistant
 
   type ASTContext = (ScalaAST, ScalaAST, ScalaAST) => ScalaAST
 
-  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)
-      (contextForLHS: ASTContext, contextForRHS: ASTContext)
-      (reflCtx: ReflectedContext): Seq[SynthesizedInnerSuggestion] = {
-    
+  def inlineSuggest(lhs: Expr, op: theory.relations.Rel, rhs: Expr)(contextForLHS: ASTContext, contextForRHS: ASTContext)(reflCtx: ReflectedContext): Seq[SynthesizedInnerSuggestion] = {
     val thms = reflCtx.reachableTheorems.map {
       case (path, thm) => (codeGen.generateScalaCode(path), Result(theory.Axiom(thm), thm.expression))
     }.toMap
@@ -65,20 +62,20 @@ trait Assistant
         (codeGen.generateScalaCode(path), sih)
     }.toMap
 
-    val lhsSuggs = analyse(lhs, thms ++ findInductiveHypothesisApplication(lhs, ihses)).map(tuple2Append(_, contextForLHS))
-    val rhsSuggs = analyse(rhs, thms ++ findInductiveHypothesisApplication(rhs, ihses)).map(tuple2Append(_, contextForRHS))
-
-    val results = (lhsSuggs ++ rhsSuggs) flatMap {
-      case (name, sugg, ctx) =>
-        util.Try(synthesizeInner(sugg)(reflCtx)) map {
+    def buildSuggestion(side: Expr, otherSide: Expr, ctx: ASTContext): NamedInnerSuggestion => Seq[(Expr, ASTContext, String, String)] = {
+      case (name, sugg) =>
+        util.Try(synthesizeInner(side, otherSide, sugg)(reflCtx)) map {
           case (res, proof, recsugg) => (resultExprOf(sugg), ctx, name, codeGen.generateScalaCode(ctx(res, proof, recsugg)))
         } match {
-          case util.Success(synthsugg) => Some(synthsugg)
-          case util.Failure(error)     => println(error); None
+          case util.Success(synthsugg) => Seq(synthsugg)
+          case util.Failure(error)     => println(error); Seq()
         }
     }
 
-    val uniques = results.groupBy(x => (x._1, x._2)).mapValues(_.minBy(_._4.size)).toSeq.map {
+    val lhsSuggs = analyse(lhs, thms ++ findInductiveHypothesisApplication(lhs, ihses)).flatMap(buildSuggestion(lhs, rhs, contextForLHS))
+    val rhsSuggs = analyse(rhs, thms ++ findInductiveHypothesisApplication(rhs, ihses)).flatMap(buildSuggestion(rhs, lhs, contextForRHS))
+
+    val uniques = (lhsSuggs ++ rhsSuggs).groupBy(x => (x._1, x._2)).mapValues(_.minBy(_._4.size)).toSeq.map {
       case (_, (res, _, name, code)) => SynthesizedInnerSuggestion(name, code, res)
     }
 

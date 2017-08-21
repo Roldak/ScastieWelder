@@ -92,6 +92,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
       case ValDecl(id, Some(tpe))  => s"$id: ${gen(tpe)}"
       case ValDecl(id, None)       => id
       case Unapply(extr, patterns) => s"${gen(extr)}(${patterns map genPattern mkString ", "})"
+      case BackTicks(id)           => s"`$id`"
     }
 
     def genCase(c: Case): String = {
