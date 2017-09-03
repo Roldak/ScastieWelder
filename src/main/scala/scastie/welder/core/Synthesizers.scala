@@ -255,9 +255,9 @@ trait Synthesizers extends ExprOps { self: Assistant =>
           updatedVarsThen(Seq(((), BasicNamer("ihs")), ((), BasicNamer("goal")))) { (names, synth) =>
             val cases = ADTDeconstructable.cases(v.tpe.asInstanceOf[ADTType]) map {
               case (Reflected(constrId), expr, vars) => synth.updatedVarsThen(vars map (v => (v, BasicNamer(v.id.name)))) { (names, synth) =>
-                val (constrPat: Pattern, guard) = constrId match {
+                val (constrPat, guard) = constrId match {
                   case Raw(id) => (BackTicks(id), None)
-                  case _       => (Raw("constr"), Some((Raw("constr") `.` "==")(constrId)))
+                  case _       => (ValDecl("constr", None), Some((Raw("constr") `.` "==")(constrId)))
                 }
 
                 Case(Unapply(Raw("C"), constrPat +: (names: Seq[Pattern])), guard,

@@ -133,10 +133,8 @@ class Macros(val c: Context)
 	      
 	      ..$chainContextInit
 	      
-        val str = "<h1>Select suggestion to apply</h1><br><br>" + $call.map { case assistant.SynthesizedInnerSuggestion(name, replacement, expr) =>
-          "<button onclick='ScastieExports.replaceCode(" + $chainStart + ", " + $chainEnd + ", \"" + replacement + "\")'>" + name + "</button>" +
-          " Preview: " + expr.toString + "<br>"
-        }.mkString(" ")
+        val str = assistant.renderHTML(lhs, rhs, $call, $chainStart, $chainEnd)
+        
 	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
 	      truth
 	    })
