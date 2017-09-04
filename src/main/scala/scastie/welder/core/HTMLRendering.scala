@@ -6,7 +6,7 @@ import scastie.welder.utils.MapUtils._
 
 trait HTMLRendering { self: Assistant =>
   import theory.program.trees._
-  
+
   private var id = 0
   private def freshId = {
     id += 1
@@ -15,10 +15,10 @@ trait HTMLRendering { self: Assistant =>
 
   private val exprIdMap = MutableMap[Expr, List[String]]()
 
-  private case class RenderContext(indent: Int, parents: List[Expr], boundVars: Set[ValDef]) {
-    def indented = RenderContext(indent + 1, parents, boundVars)
-    def withParent(e: Expr) = RenderContext(indent, e :: parents, boundVars)
-    def withBoundVars(v: Iterable[ValDef]) = RenderContext(indent, parents, boundVars ++ v)
+  private case class RenderContext(indent: Int, parents: List[Expr], boundVars: Set[ValDef], idChar: Char) {
+    def indented = copy(indent = indent + 1)
+    def withParent(e: Expr) = copy(parents = e :: parents)
+    def withBoundVars(v: Iterable[ValDef]) = copy(boundVars = boundVars ++ v)
   }
 
   private object Code {
@@ -80,7 +80,7 @@ trait HTMLRendering { self: Assistant =>
     }
   }
 
-  private def renderExpr(expr: Expr): String = {
+  private def renderExpr(expr: Expr, idChar: Char): String = {
     import Code._
 
     def nary(exprs: Seq[String], sep: String = ", ", start: String = "", end: String = "", hideIfEmptyExprs: Boolean = false)(implicit ctx: RenderContext): String = {
@@ -91,7 +91,7 @@ trait HTMLRendering { self: Assistant =>
 
     def rec(expr: Expr)(implicit ctx: RenderContext): String = {
       val res = inner(expr)
-      val id = s"expr_$freshId"
+      val id = s"expr_${freshId}_${ctx.idChar}"
       exprIdMap.adjust(expr, Nil)(id :: _)
       s"""<span id="$id">$res</span>"""
     }
@@ -146,7 +146,7 @@ trait HTMLRendering { self: Assistant =>
       case Operator(subexprs, _) => expr.getClass.getSimpleName + nary(subexprs map rec, ", ", "(", ")")
     }
 
-    rec(expr)(RenderContext(0, Nil, Set.empty))
+    rec(expr)(RenderContext(0, Nil, Set.empty, idChar))
   }
 
   private val ScriptSetup = """
@@ -161,28 +161,60 @@ trait HTMLRendering { self: Assistant =>
   private val JsLoader = s"""<img src="/assets/public/img/icon-scastie.png" onload="$ScriptSetup;this.parentNode.replaceChild(script, this)"/>"""
 
   def renderHTML(lhs: Expr, rhs: Expr, suggs: Seq[SynthesizedInnerSuggestion], chainStart: Int, chainEnd: Int): String = {
-    val js = """<script type="text/javascript">
+    val titleMap = suggs.groupBy(_.title).map(_._1).zipWithIndex.toMap
+
+    val top = renderExpr(lhs, 'l') + "\n\n"
+    val bot = renderExpr(rhs, 'r')
+    val middle = suggs.groupBy(_.title).map {
+      case (title, _) => s"""<button onclick="installMode(new SelectSubjectMode(suggestions[${titleMap(title)}]))">$title</button>"""
+    } mkString ("", " ", "\n\n")
+
+    val jsSuggestions = suggs.groupBy(_.title).mapValues(_.groupBy(_.subject)).map {
+      case (title, next) =>
+        val elements = next.filter(x => exprIdMap.contains(x._1)).toSeq.map {
+          case (k, v) =>
+            val subjectIds = exprIdMap(k).map("\"" + _ + "\"").mkString("[", ", ", "]")
+            val suggestions = v.map {
+              case SynthesizedInnerSuggestion(_, code, _, resultExpr, isLHS) => s"""{
+              |  res: "${escapeProperly(renderExpr(resultExpr, 'n'))}",
+              |  lhs: $isLHS
+              |}""".stripMargin
+            }.mkString("[", ", ", "]")
+
+            s"""{
+            |  subjectIds: $subjectIds,
+            |  suggestions: $suggestions
+            |}""".stripMargin
+        }.mkString("[", ", ", "]")
+
+        s"""${titleMap(title)}: $elements"""
+    } mkString ("{", ", ", "}")
+
+    val js = s"""<script type="text/javascript">
       function Expr(main, components) {
         this.main = main;
         this.id = main.id;
         this.nodes = components;
+        this.isLHS = this.id.endsWith('l');
         
         this.nodes.forEach(function(n){
           n["initStyle"] = n.style.cssText;
           n["styleStack"] = [];
         });
         
-        this.pushStyle = function(styleSetter) {
+        this.pushStyle = function(id, styleSetter) {
           this.nodes.forEach(function(n) {
-            n.styleStack.push(n.style.cssText);
-            styleSetter(n.style);
+            if (n.styleStack.length == 0 || n.styleStack[n.styleStack.length - 1].id !== id) {
+              n.styleStack.push({id: id, css: n.style.cssText});
+              styleSetter(n.style);
+            }
           });
         };
         
         this.popStyle = function() {
           this.nodes.forEach(function(n) {
             if (n.styleStack.length > 0) {
-              n.style.cssText = n.styleStack.pop();
+              n.style.cssText = n.styleStack.pop().css;
             }
           });
         };
@@ -200,7 +232,7 @@ trait HTMLRendering { self: Assistant =>
         this.uninstall = resetAllExprsStyle;
         
         this.overExpr = function(expr) {
-          expr.pushStyle(function(style) {
+          expr.pushStyle('idleover', function(style) {
             style.textDecoration = "underline";
           });
         };
@@ -212,50 +244,110 @@ trait HTMLRendering { self: Assistant =>
         this.clickExpr = function(expr) {};
       }
       
-      function SelectSubjectMode(subjectIds) {
+      function SelectSubjectMode(elements) {
+        this.elements = elements;
+
+        var sidedSuggCount = function(elem) {
+          return elem.suggestions
+            .split(function(sugg) {return sugg.lhs;})
+            .map(function(side) {return side.length;})
+            .reduce(function(a, b) {return Math.max(a, b)});
+        };
+        
+        var maxSuggsCount = sidedSuggCount(this.elements.reduce(function(a, b) {
+          return sidedSuggCount(a) > sidedSuggCount(b) ? a : b; 
+        }));
+        
+        var insertionBlanks = ScastieExports.indentAccordingToPosition($chainStart, "\\n".repeat(maxSuggsCount + 1));
+        
+        this.showPreviews = function(isLHS, suggestions) {
+          var html = suggestions.filter(function(sugg) {
+            return sugg.lhs === isLHS;
+          }).map(function(sugg, idx) {
+            return "<span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res;
+          }).resize(maxSuggsCount, "").join("\\n");
+          
+          var id = isLHS ? 'insert_lhs' : 'insert_rhs';
+          
+          document.getElementById(id).innerHTML = ScastieExports.indentAccordingToPosition($chainStart, html + "\\n\\n");
+        }
+        
+        this.reInitPreviews = function() {
+          document.getElementById("insert_lhs").innerHTML = insertionBlanks;
+          document.getElementById("insert_rhs").innerHTML = insertionBlanks;
+        }
+        
+        this.suggestionsFor = function(expr) {
+          return this.elements.find(function(elem) {
+            return elem.subjectIds.indexOf(expr.id) !== -1;
+          }).suggestions;
+        };
+        
         this.install = function() {
+          var subjectIds = Array.prototype.concat.apply([], this.elements.map(function(elem) {
+            return elem.subjectIds;
+          }));
+        
           [this.focused, this.unfocused] = allExprs.split(function(expr) {
             return subjectIds.indexOf(expr.id) !== -1;
           });
           
           this.unfocused.forEach(function(expr) {
-            expr.pushStyle(function(style) {
+            expr.pushStyle('unfocused', function(style) {
               style.color = "darkgray";
             });
           });
+          
+          this.reInitPreviews();
         };
         
-        this.uninstall = resetAllExprsStyle;
+        this.uninstall = function() {
+          resetAllExprsStyle();
+          document.getElementById("insert_lhs").innerHTML = "";
+          document.getElementById("insert_rhs").innerHTML = "";
+        }
         
         this.overExpr = function(expr) {
           if (this.focused.indexOf(expr) !== -1) {
-            expr.pushStyle(function(style) {
+            expr.pushStyle('subjectover', function(style) {
               style.textDecoration = "underline";
               style.cursor = "pointer";
             });
+            
+            this.showPreviews(expr.isLHS, this.suggestionsFor(expr));
           }
         };
         
         this.outExpr = function(expr) {
           if (this.focused.indexOf(expr) !== -1) {
             expr.popStyle();
+            this.reInitPreviews();
           }
         };
         
         this.clickExpr = function(expr) {
           if (this.focused.indexOf(expr) !== -1) {
             installMode(new IdleMode());
+            
+            console.log(this.suggestionsFor(expr));
           }
         };
       }
       
       function overExpr(event, expr) {
         event.stopPropagation();
-        currentMode.overExpr(expr);
+        if (!similarEvents(lastEvent, event)) {
+          lastEvent = event;
+          currentMode.overExpr(expr);
+        }
       }
       
       function outExpr(event, expr) {
-        currentMode.outExpr(expr);
+        event.stopPropagation();
+        if (!similarEvents(lastEvent, event)) {
+          lastEvent = event;
+          currentMode.outExpr(expr);
+        }
       }
       
       function clickExpr(event, expr) {
@@ -306,6 +398,10 @@ trait HTMLRendering { self: Assistant =>
         currentMode.install();
       }
       
+      function similarEvents(a, b) {
+        return !!a && !!b && a.type === b.type && a.target === b.target;
+      }
+      
       Array.prototype.split = function (f) {
         var matched = [],
             unmatched = [],
@@ -318,34 +414,28 @@ trait HTMLRendering { self: Assistant =>
       
         return [matched, unmatched];
       };
+      
+      Array.prototype.resize = function(newSize, defaultValue) {
+        while(newSize > this.length)
+          this.push(defaultValue);
+        this.length = newSize;
+        return this;
+      }
+
+      document.getElementById('toIndent').innerHTML = 
+        ScastieExports.indentAccordingToPosition($chainStart, '\\n' + document.getElementById('toIndent').innerHTML).substring(1);
+        
+      var lastEvent = undefined;
 
       var allExprs = buildExprNodes();
       
       var currentMode = new IdleMode();
       currentMode.install();
       
+      var suggestions = $jsSuggestions
+      
     </script>"""
 
-    val top = renderExpr(lhs) + "\n\n"
-    val bot = renderExpr(rhs)
-    
-    println(exprIdMap)
-    println(exprIdMap.contains(lhs))
-
-    val middle = suggs.groupBy(_.title).mapValues(_.groupBy(_.subject)).map {
-      case (title, next) =>
-        val subjectIds = next.map(_._1).filter(exprIdMap.contains).flatMap(exprIdMap).map("'" + _ + "'").mkString("[", ", ", "]")
-        s"""<button onclick="installMode(new SelectSubjectMode($subjectIds))">$title</button>"""
-    } mkString("", " ", "\n\n")
-
-    js + JsLoader + top + middle + bot
-
-    /*
-    suggs.map {
-      case SynthesizedInnerSuggestion(name, replacement, subj, res) =>
-        "<button onclick='ScastieExports.replaceCode(" + chainStart + ", " + chainEnd + ", \"" + replacement + "\")'>" + name + "</button>" +
-          " Preview: " + res.toString + "<br>"
-    }.mkString(" ")
-    */
+    js + JsLoader + "<div id='toIndent'>" + top + "<span id='insert_rhs'></span>" + middle + "<span id='insert_lhs'></span>" + bot + "</div>"
   }
 }

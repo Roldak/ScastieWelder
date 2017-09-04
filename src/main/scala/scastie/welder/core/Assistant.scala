@@ -19,9 +19,9 @@ trait Assistant
   case class StructuralInductionHypothesis(constr: Identifier, expr: Expr, hyp: Expr => theory.Attempt[Result], vars: Seq[Variable])
 
   case class SynthesizedTopLevelSuggestion(title: String, code: String)
-  case class SynthesizedInnerSuggestion(title: String, code: String, subject: Expr, resultExpr: Expr)
+  case class SynthesizedInnerSuggestion(title: String, code: String, subject: Expr, resultExpr: Expr, isLHS: Boolean)
 
-  private def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
+  protected[core] def escapeProperly(code: String): String = code.replaceAllLiterally("\"", """\"""").replaceAllLiterally("\n", """\n""")
 
   private def tuple2Append[A, B, C](tuple: (A, B), elem: C): (A, B, C) = (tuple._1, tuple._2, elem)
 
@@ -73,7 +73,7 @@ trait Assistant
     val rhsSuggs = analyse(rhs, thms ++ findInductiveHypothesisApplication(rhs, ihses)).flatMap(buildSuggestion(rhs, lhs, contextForRHS))
 
     val uniques = (lhsSuggs ++ rhsSuggs).groupBy(x => (x._2, x._4)).mapValues(_.minBy(_._5.size)).toSeq.map {
-      case (_, (name, _, subj, res, code)) => SynthesizedInnerSuggestion(name, code, subj, res)
+      case (_, (name, ctx, subj, res, code)) => SynthesizedInnerSuggestion(name, code, subj, res, ctx eq contextForLHS)
     }
 
     uniques
