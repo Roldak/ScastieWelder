@@ -124,6 +124,8 @@ class Macros(val c: Context)
 
     val chainStart = originalPos(enclosingOpChain.pos.start)
     val chainEnd = originalPos(enclosingOpChain.pos.end)
+    val segmentStart = originalPos(lhs.pos.start)
+    val segmentEnd = originalPos(rhs.pos.end)
 
     q"""
 	    ({
@@ -135,7 +137,7 @@ class Macros(val c: Context)
 	      
         val str = assistant.renderHTML(lhs, rhs, $call, $chainStart, $chainEnd)
         
-	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
+	      println(Runtime.write(List(Instrumentation(Position($segmentStart, $segmentEnd), Html(str).fold))))
 	      truth
 	    })
 	    """

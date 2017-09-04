@@ -1,13 +1,19 @@
 package scastie.welder.core
 
+import scala.collection.mutable.{ Map => MutableMap }
+
+import scastie.welder.utils.MapUtils._
+
 trait HTMLRendering { self: Assistant =>
   import theory.program.trees._
-
+  
   private var id = 0
   private def freshId = {
     id += 1
     id - 1
   }
+
+  private val exprIdMap = MutableMap[Expr, List[String]]()
 
   private case class RenderContext(indent: Int, parents: List[Expr], boundVars: Set[ValDef]) {
     def indented = RenderContext(indent + 1, parents, boundVars)
@@ -76,7 +82,7 @@ trait HTMLRendering { self: Assistant =>
 
   private def renderExpr(expr: Expr): String = {
     import Code._
-    
+
     def nary(exprs: Seq[String], sep: String = ", ", start: String = "", end: String = "", hideIfEmptyExprs: Boolean = false)(implicit ctx: RenderContext): String = {
       val str = exprs mkString sep
       if (hideIfEmptyExprs && str.isEmpty) ""
@@ -85,8 +91,9 @@ trait HTMLRendering { self: Assistant =>
 
     def rec(expr: Expr)(implicit ctx: RenderContext): String = {
       val res = inner(expr)
-      val mouseEvents = """onmouseover="overExpr(event, this)" onmouseout="outExpr(event, this)""""
-      s"""<span $mouseEvents id="expr_$freshId">$res</span>"""
+      val id = s"expr_$freshId"
+      exprIdMap.adjust(expr, Nil)(id :: _)
+      s"""<span id="$id">$res</span>"""
     }
 
     def typeNode(tpe: Type)(implicit ctx: RenderContext): String = Type(prettyPrint(tpe, PrinterOptions()))
@@ -155,47 +162,190 @@ trait HTMLRendering { self: Assistant =>
 
   def renderHTML(lhs: Expr, rhs: Expr, suggs: Seq[SynthesizedInnerSuggestion], chainStart: Int, chainEnd: Int): String = {
     val js = """<script type="text/javascript">
-      function childExprs(node) {
-        var nodes = Array.from(node.getElementsByTagName("*"))
-        nodes.push(node)
-        return nodes.filter(function(n) { return !!n.id && n.id.startsWith("expr_") })
+      function Expr(main, components) {
+        this.main = main;
+        this.id = main.id;
+        this.nodes = components;
+        
+        this.nodes.forEach(function(n){
+          n["initStyle"] = n.style.cssText;
+          n["styleStack"] = [];
+        });
+        
+        this.pushStyle = function(styleSetter) {
+          this.nodes.forEach(function(n) {
+            n.styleStack.push(n.style.cssText);
+            styleSetter(n.style);
+          });
+        };
+        
+        this.popStyle = function() {
+          this.nodes.forEach(function(n) {
+            if (n.styleStack.length > 0) {
+              n.style.cssText = n.styleStack.pop();
+            }
+          });
+        };
+        
+        this.resetStyle = function() {
+          this.nodes.forEach(function(n) {
+            n.style.cssText = n.initStyle;
+            n.styleStack = [];
+          });
+        };
       }
       
-      function overExpr(event, node) {
-        event.stopPropagation()
-        childExprs(node).forEach(function(n) {
-          n.style.textDecoration = "underline"
-        })
+      function IdleMode() {
+        this.install = resetAllExprsStyle;
+        this.uninstall = resetAllExprsStyle;
+        
+        this.overExpr = function(expr) {
+          expr.pushStyle(function(style) {
+            style.textDecoration = "underline";
+          });
+        };
+        
+        this.outExpr = function(expr) {
+          expr.popStyle();
+        };
+        
+        this.clickExpr = function(expr) {};
       }
       
-      function outExpr(event, node) {
-        childExprs(node).forEach(resetStyle)
+      function SelectSubjectMode(subjectIds) {
+        this.install = function() {
+          [this.focused, this.unfocused] = allExprs.split(function(expr) {
+            return subjectIds.indexOf(expr.id) !== -1;
+          });
+          
+          this.unfocused.forEach(function(expr) {
+            expr.pushStyle(function(style) {
+              style.color = "darkgray";
+            });
+          });
+        };
+        
+        this.uninstall = resetAllExprsStyle;
+        
+        this.overExpr = function(expr) {
+          if (this.focused.indexOf(expr) !== -1) {
+            expr.pushStyle(function(style) {
+              style.textDecoration = "underline";
+              style.cursor = "pointer";
+            });
+          }
+        };
+        
+        this.outExpr = function(expr) {
+          if (this.focused.indexOf(expr) !== -1) {
+            expr.popStyle();
+          }
+        };
+        
+        this.clickExpr = function(expr) {
+          if (this.focused.indexOf(expr) !== -1) {
+            installMode(new IdleMode());
+          }
+        };
       }
       
-      function resetStyle(exprNode) {
-        var style = exprStyles[exprNode.id]
-        if (!!style) {
-          exprNode.style = style
+      function overExpr(event, expr) {
+        event.stopPropagation();
+        currentMode.overExpr(expr);
+      }
+      
+      function outExpr(event, expr) {
+        currentMode.outExpr(expr);
+      }
+      
+      function clickExpr(event, expr) {
+        event.stopPropagation();
+        currentMode.clickExpr(expr);
+      }
+      
+      function buildExprNodes() {
+        function isExprNode(n) {
+          return !!n.id && n.id.startsWith("expr_");
         }
+        
+        function childExprs(node) {
+          var nodes = Array.from(node.getElementsByTagName("*"));
+          nodes.push(node);
+          return nodes.filter(isExprNode);
+        }
+        
+        function exprTags(node) {
+          var components = Array.from(node.children).filter(function(n) {return !isExprNode(n);});
+          
+          var res = [node];
+          components.forEach(function(c) {
+            res = res.concat(exprTags(c));
+          });
+          
+          return res;
+        }
+        
+        return childExprs(document).map(function(n) {
+          var expr = new Expr(n, exprTags(n));
+          n.onmouseover = function(event) { overExpr(event, expr); };
+          n.onmouseout = function(event) { outExpr(event, expr); };
+          n.onclick = function(event) { clickExpr(event, expr); };
+          return expr;
+        });
       }
       
-      function registerExprStyles() {
-        childExprs(document).forEach(function(n) {
-          exprStyles[n.id] = n.style
-        })
+      function resetAllExprsStyle() {
+        allExprs.forEach(function(expr) {
+          expr.resetStyle();
+        });
       }
       
-      var exprStyles = {}
-      registerExprStyles()
+      function installMode(mode) {
+        currentMode.uninstall();
+        currentMode = mode;
+        currentMode.install();
+      }
+      
+      Array.prototype.split = function (f) {
+        var matched = [],
+            unmatched = [],
+            i = 0,
+            j = this.length;
+      
+        for (; i < j; i++){
+          (f.call(this, this[i], i) ? matched : unmatched).push(this[i]);
+        }
+      
+        return [matched, unmatched];
+      };
+
+      var allExprs = buildExprNodes();
+      
+      var currentMode = new IdleMode();
+      currentMode.install();
+      
     </script>"""
 
-    val head = renderExpr(lhs) + """<br><br>"""
-    suggs.groupBy(_.title).mapValues(_.groupBy(_.subject))
+    val top = renderExpr(lhs) + "\n\n"
+    val bot = renderExpr(rhs)
+    
+    println(exprIdMap)
+    println(exprIdMap.contains(lhs))
 
-    js + JsLoader + head + suggs.map {
+    val middle = suggs.groupBy(_.title).mapValues(_.groupBy(_.subject)).map {
+      case (title, next) =>
+        val subjectIds = next.map(_._1).filter(exprIdMap.contains).flatMap(exprIdMap).map("'" + _ + "'").mkString("[", ", ", "]")
+        s"""<button onclick="installMode(new SelectSubjectMode($subjectIds))">$title</button>"""
+    } mkString("", " ", "\n\n")
+
+    js + JsLoader + top + middle + bot
+
+    /*
+    suggs.map {
       case SynthesizedInnerSuggestion(name, replacement, subj, res) =>
         "<button onclick='ScastieExports.replaceCode(" + chainStart + ", " + chainEnd + ", \"" + replacement + "\")'>" + name + "</button>" +
           " Preview: " + res.toString + "<br>"
     }.mkString(" ")
+    */
   }
 }
