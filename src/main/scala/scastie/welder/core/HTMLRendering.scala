@@ -49,12 +49,12 @@ trait HTMLRendering { self: Assistant =>
 
     implicit def node2string(x: Node): String = x.toString
 
-    def Operator(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor Black
+    def Operator(text: String)(implicit ctx: RenderContext): String = Raw(text)
     def TreeName(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(181, 58, 103)
     def Literal(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(226, 160, 255)
     def Identifier(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(94, 94, 255)
     def BoundVar(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor DarkGray withFont ConsolasItalicFont
-    def Type(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor Black
+    def Type(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(162, 46, 0)
     def ADTType(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(210, 87, 0) withFont ConsolasBoldFont
     def Keyword(text: String)(implicit ctx: RenderContext): String = Raw(text) withColor rgb(193, 58, 85) withFont ConsolasBoldFont
     def Indent(n: Int)(implicit ctx: RenderContext): String = Raw("  " * n)
@@ -99,7 +99,7 @@ trait HTMLRendering { self: Assistant =>
     def typeNode(tpe: Type)(implicit ctx: RenderContext): String = Type(prettyPrint(tpe, PrinterOptions()))
 
     def block(stmt: String)(implicit ctx: RenderContext): String =
-      OpeningBrace + LineBreak + Indent(ctx.indent + 1) + stmt + LineBreak + Indent(ctx.indent) + ClosingBrace
+      "{\n" + Indent(ctx.indent + 1) + stmt + "\n" + Indent(ctx.indent) + "}"
 
     def inner(expr: Expr)(implicit ctx: RenderContext): String = expr match {
       case FractionLiteral(a, b)         => a.toString + "/" + b.toString
@@ -129,7 +129,7 @@ trait HTMLRendering { self: Assistant =>
         rec(e) + Dot + Keyword("as") + OpeningSquareBracket + typeNode(tp) + ClosingSquareBracket
 
       case IfExpr(cond, then, elze) =>
-        Keyword("if") + Space + OpeningBracket + rec(cond) + ClosingBracket + Space +
+        Keyword("if") + Space + "(" + rec(cond) + ") " +
           block(rec(then)(ctx indented)) + Keyword(" else ") + block(rec(elze)(ctx indented))
 
       case Forall(vals, expr) =>
@@ -160,6 +160,24 @@ trait HTMLRendering { self: Assistant =>
 
   private val JsLoader = s"""<img src="/assets/public/img/icon-scastie.png" onload="$ScriptSetup;this.parentNode.replaceChild(script, this)"/>"""
 
+  private val style = """<style>
+      |table.suggestion_table {
+      |  border: 0;
+      |}
+      |table.suggestion_table td {
+      |  vertical-align: middle;
+      |}
+      |table.suggestion_table .preview_elem {
+      |  display: none;
+      |}
+      |.sugg_preview {
+      |  cursor: pointer;
+      |}
+      |.sugg_preview:hover {
+      |  text-decoration: underline;
+      |}
+      |</style>""".stripMargin
+
   def renderHTML(lhs: Expr, rhs: Expr, suggs: Seq[SynthesizedInnerSuggestion], chainStart: Int, chainEnd: Int): String = {
     val titleMap = suggs.groupBy(_.title).map(_._1).zipWithIndex.toMap
 
@@ -177,7 +195,8 @@ trait HTMLRendering { self: Assistant =>
             val suggestions = v.map {
               case SynthesizedInnerSuggestion(_, code, _, resultExpr, isLHS) => s"""{
               |  res: "${escapeProperly(renderExpr(resultExpr, 'n'))}",
-              |  lhs: $isLHS
+              |  lhs: $isLHS,
+              |  rep: "$code"
               |}""".stripMargin
             }.mkString("[", ", ", "]")
 
@@ -234,7 +253,8 @@ trait HTMLRendering { self: Assistant =>
           var html = suggestions.filter(function(sugg) {
             return sugg.lhs === isLHS;
           }).map(function(sugg, idx) {
-            return "<span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res;
+            var onclick = "ScastieExports.replaceCode($chainStart, $chainEnd, \\"" + sugg.rep + "\\")";
+            return "<span class='sugg_preview' onclick='" + onclick + "'><span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res + "</span>";
           }).resize(maxSuggsCount + 1, "").join("\\n");
           
           var [sugId, insId, opId] = isLHS ? ["suggest_lhs", "insert_lhs", "op_lhs"] : ["suggest_rhs", "insert_rhs", "op_rhs"];
@@ -344,15 +364,31 @@ trait HTMLRendering { self: Assistant =>
         
         this.clickExpr = function(expr) {
           if (this.focused.indexOf(expr) !== -1) {
-            installMode(new IdleMode());
-            
-            console.log(this.suggestionsFor(expr));
+            var suggestions = this.suggestionsFor(expr);
+            if (suggestions.length == 1) {
+              ScastieExports.replaceCode($chainStart, $chainEnd, suggestions[0].rep);
+            } else {
+              installMode(new SelectInPreviewsMode(expr.isLHS, suggestions, maxSuggsCount));
+            }
           }
         };
       }
       
-      function SelectInPreviewsMode(isLHS, suggestions) {
+      function SelectInPreviewsMode(isLHS, suggestions, maxSuggsCount) {
+        var previewer = new Previewer(maxSuggsCount);
         
+        this.install = function() {
+          previewer.reInitPreviews();
+          previewer.showPreviews(isLHS, suggestions);
+        };
+        
+        this.uninstall = function() {
+          previewer.clear();
+        };
+        
+        this.overExpr = function(expr) {};
+        this.outExpr = function(expr) {};
+        this.clickExpr = function(expr) {};
       }
       
       function overExpr(event, expr) {
@@ -464,20 +500,8 @@ trait HTMLRendering { self: Assistant =>
       var suggestions = $jsSuggestions
       
     </script>"""
-      
-    val style = """<style>
-      |table.suggestion_table {
-      |  border: 0;
-      |}
-      |table.suggestion_table td {
-      |  vertical-align: middle;
-      |}
-      |table.suggestion_table .preview_elem {
-      |  display: none;
-      |}
-      |</style>""".stripMargin
-      
-    val table = s"""<table class='suggestion_table'>
+
+    val table = s"""<div id='toIndent'><table class='suggestion_table'>
       |<tr><td>$top</td><td style="text-align:right"> ==|</td></tr>
       |
       |<tr class='preview_elem' id='suggest_rhs'><td style="text-align:right"><br><i>suggest</i><br><br></td><td style="text-align:right"> |</td></tr>
@@ -489,8 +513,8 @@ trait HTMLRendering { self: Assistant =>
       |<tr class='preview_elem' id='suggest_lhs'><td style="text-align:right"><br><i>suggest</i><br><br></td><td style="text-align:right"> |</td></tr>
       |
       |<tr><td>$bot</td><td style="text-align:right"></td></tr>
-      |</table>""".stripMargin
+      |</table></div>""".stripMargin
 
-    js + JsLoader + style + "<div id='toIndent'>" + table + "</div>"
+    js + JsLoader + style + table
   }
 }
