@@ -163,11 +163,11 @@ trait HTMLRendering { self: Assistant =>
   def renderHTML(lhs: Expr, rhs: Expr, suggs: Seq[SynthesizedInnerSuggestion], chainStart: Int, chainEnd: Int): String = {
     val titleMap = suggs.groupBy(_.title).map(_._1).zipWithIndex.toMap
 
-    val top = renderExpr(lhs, 'l') + "\n\n"
+    val top = renderExpr(lhs, 'l')
     val bot = renderExpr(rhs, 'r')
     val middle = suggs.groupBy(_.title).map {
       case (title, _) => s"""<button onclick="installMode(new SelectSubjectMode(suggestions[${titleMap(title)}]))">$title</button>"""
-    } mkString ("", " ", "\n\n")
+    } mkString (" ")
 
     val jsSuggestions = suggs.groupBy(_.title).mapValues(_.groupBy(_.subject)).map {
       case (title, next) =>
@@ -227,6 +227,41 @@ trait HTMLRendering { self: Assistant =>
         };
       }
       
+      function Previewer(maxSuggsCount) {
+        var insertionBlanks = "\\n".repeat(maxSuggsCount + 3);
+        
+        this.showPreviews = function(isLHS, suggestions) {
+          var html = suggestions.filter(function(sugg) {
+            return sugg.lhs === isLHS;
+          }).map(function(sugg, idx) {
+            return "<span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res;
+          }).resize(maxSuggsCount + 1, "").join("\\n");
+          
+          var [sugId, insId, opId] = isLHS ? ["suggest_lhs", "insert_lhs", "op_lhs"] : ["suggest_rhs", "insert_rhs", "op_rhs"];
+          
+          document.getElementById(sugId).style.display = 'table-row';
+          document.getElementById(insId).innerHTML = html;
+          document.getElementById(opId).style.display = 'table-cell';
+        };
+        
+        this.reInitPreviews = function() {
+          document.getElementById("suggest_lhs").style.display = 'none';
+          document.getElementById("suggest_rhs").style.display = 'none';
+          document.getElementById("op_lhs").style.display = 'none';
+          document.getElementById("op_rhs").style.display = 'none';
+          document.getElementById("insert_lhs").parentNode.style.display = 'table-row';
+          document.getElementById("insert_rhs").parentNode.style.display = 'table-row';
+          document.getElementById("insert_lhs").innerHTML = insertionBlanks;
+          document.getElementById("insert_rhs").innerHTML = insertionBlanks;
+        };
+        
+        this.clear = function() {
+          Array.from(document.getElementsByClassName('preview_elem')).forEach(function(elem) {
+            elem.style.display='none';
+          });
+        };
+      }
+      
       function IdleMode() {
         this.install = resetAllExprsStyle;
         this.uninstall = resetAllExprsStyle;
@@ -258,24 +293,7 @@ trait HTMLRendering { self: Assistant =>
           return sidedSuggCount(a) > sidedSuggCount(b) ? a : b; 
         }));
         
-        var insertionBlanks = ScastieExports.indentAccordingToPosition($chainStart, "\\n".repeat(maxSuggsCount + 1));
-        
-        this.showPreviews = function(isLHS, suggestions) {
-          var html = suggestions.filter(function(sugg) {
-            return sugg.lhs === isLHS;
-          }).map(function(sugg, idx) {
-            return "<span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res;
-          }).resize(maxSuggsCount, "").join("\\n");
-          
-          var id = isLHS ? 'insert_lhs' : 'insert_rhs';
-          
-          document.getElementById(id).innerHTML = ScastieExports.indentAccordingToPosition($chainStart, html + "\\n\\n");
-        }
-        
-        this.reInitPreviews = function() {
-          document.getElementById("insert_lhs").innerHTML = insertionBlanks;
-          document.getElementById("insert_rhs").innerHTML = insertionBlanks;
-        }
+        var previewer = new Previewer(maxSuggsCount);
         
         this.suggestionsFor = function(expr) {
           return this.elements.find(function(elem) {
@@ -298,13 +316,12 @@ trait HTMLRendering { self: Assistant =>
             });
           });
           
-          this.reInitPreviews();
+          previewer.reInitPreviews();
         };
         
         this.uninstall = function() {
           resetAllExprsStyle();
-          document.getElementById("insert_lhs").innerHTML = "";
-          document.getElementById("insert_rhs").innerHTML = "";
+          previewer.clear();
         }
         
         this.overExpr = function(expr) {
@@ -314,14 +331,14 @@ trait HTMLRendering { self: Assistant =>
               style.cursor = "pointer";
             });
             
-            this.showPreviews(expr.isLHS, this.suggestionsFor(expr));
+            previewer.showPreviews(expr.isLHS, this.suggestionsFor(expr));
           }
         };
         
         this.outExpr = function(expr) {
           if (this.focused.indexOf(expr) !== -1) {
             expr.popStyle();
-            this.reInitPreviews();
+            previewer.reInitPreviews();
           }
         };
         
@@ -332,6 +349,10 @@ trait HTMLRendering { self: Assistant =>
             console.log(this.suggestionsFor(expr));
           }
         };
+      }
+      
+      function SelectInPreviewsMode(isLHS, suggestions) {
+        
       }
       
       function overExpr(event, expr) {
@@ -422,8 +443,16 @@ trait HTMLRendering { self: Assistant =>
         return this;
       }
 
-      document.getElementById('toIndent').innerHTML = 
-        ScastieExports.indentAccordingToPosition($chainStart, '\\n' + document.getElementById('toIndent').innerHTML).substring(1);
+      function indentTable() {
+        var indentation = ScastieExports.indentAccordingToPosition($chainStart, '\\n').substring(1).replace(/ /g, "&nbsp;")
+        Array.from(document.getElementById('toIndent').getElementsByTagName('tr')).forEach(function(tr) {
+          var indentElem = document.createElement('td');
+          indentElem.innerHTML = indentation;
+          tr.insertBefore(indentElem, tr.firstChild);
+        });
+      }
+
+      indentTable();
         
       var lastEvent = undefined;
 
@@ -435,7 +464,33 @@ trait HTMLRendering { self: Assistant =>
       var suggestions = $jsSuggestions
       
     </script>"""
+      
+    val style = """<style>
+      |table.suggestion_table {
+      |  border: 0;
+      |}
+      |table.suggestion_table td {
+      |  vertical-align: middle;
+      |}
+      |table.suggestion_table .preview_elem {
+      |  display: none;
+      |}
+      |</style>""".stripMargin
+      
+    val table = s"""<table class='suggestion_table'>
+      |<tr><td>$top</td><td style="text-align:right"> ==|</td></tr>
+      |
+      |<tr class='preview_elem' id='suggest_rhs'><td style="text-align:right"><br><i>suggest</i><br><br></td><td style="text-align:right"> |</td></tr>
+      |<tr class='preview_elem'><td id='insert_rhs'></td><td style="text-align:right" id='op_rhs'> ==|</td></tr>
+      |
+      |<tr><td><br>$middle<br><br></td><td style="text-align:right"> |</td></tr>
+      |
+      |<tr class='preview_elem'><td id='insert_lhs'></td><td style="text-align:right" id='op_lhs'> ==|</td></tr>
+      |<tr class='preview_elem' id='suggest_lhs'><td style="text-align:right"><br><i>suggest</i><br><br></td><td style="text-align:right"> |</td></tr>
+      |
+      |<tr><td>$bot</td><td style="text-align:right"></td></tr>
+      |</table>""".stripMargin
 
-    js + JsLoader + "<div id='toIndent'>" + top + "<span id='insert_rhs'></span>" + middle + "<span id='insert_lhs'></span>" + bot + "</div>"
+    js + JsLoader + style + "<div id='toIndent'>" + table + "</div>"
   }
 }
