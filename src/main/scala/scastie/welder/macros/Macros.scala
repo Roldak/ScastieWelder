@@ -58,7 +58,7 @@ class Macros(val c: Context)
 	      
 	      val expr = $expr
         val str = "<h1>Select suggestion to apply</h1><br><br>" + $call.map { case assistant.SynthesizedTopLevelSuggestion(name, replacement) =>
-          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\")'>" + name + "</button>"
+          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\");ScastieExports.run()'>" + name + "</button>"
         }.mkString(" ")
 	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
 	      prove(expr)

@@ -253,7 +253,7 @@ trait HTMLRendering { self: Assistant =>
           var html = suggestions.filter(function(sugg) {
             return sugg.lhs === isLHS;
           }).map(function(sugg, idx) {
-            var onclick = "ScastieExports.replaceCode($chainStart, $chainEnd, \\"" + sugg.rep + "\\")";
+            var onclick = "ScastieExports.replaceCode($chainStart, $chainEnd, \\"" + sugg.rep + "\\");ScastieExports.run()";
             return "<span class='sugg_preview' onclick='" + onclick + "'><span style='color=lightgray'>" + (idx + 1) + ".</span> " + sugg.res + "</span>";
           }).resize(maxSuggsCount + 1, "").join("\\n");
           
@@ -367,6 +367,7 @@ trait HTMLRendering { self: Assistant =>
             var suggestions = this.suggestionsFor(expr);
             if (suggestions.length == 1) {
               ScastieExports.replaceCode($chainStart, $chainEnd, suggestions[0].rep);
+              ScastieExports.run();
             } else {
               installMode(new SelectInPreviewsMode(expr.isLHS, suggestions, maxSuggsCount));
             }
