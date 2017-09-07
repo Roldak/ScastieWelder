@@ -90,7 +90,10 @@ trait Assistant
       analyseForall(v, body)
 
     case Implies(hyp, body) =>
-      Seq((s"Assume hypothesis", AssumeHypothesis))
+      Seq((s"Assume hypothesis", AssumeHypothesis(false))) ++ (hyp match {
+        case And(exprs) => Seq((s"Assume hypothesis and split it in ${exprs.size} parts", AssumeHypothesis(true)))
+        case _ => Seq()
+      })
 
     case _: LessThan | _: LessEquals | _: Equals | _: GreaterEquals | _: GreaterThan =>
       Seq((s"Chain", ToChain))

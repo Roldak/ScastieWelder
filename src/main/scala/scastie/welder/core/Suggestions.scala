@@ -16,7 +16,7 @@ trait Suggestions { self: Assistant =>
   protected[core] case object SplitCases extends TopLevelSuggestion
   protected[core] case object FixVariable extends TopLevelSuggestion
   protected[core] case object StructuralInduction extends TopLevelSuggestion
-  protected[core] case object AssumeHypothesis extends TopLevelSuggestion
+  protected[core] case class AssumeHypothesis(split: Boolean) extends TopLevelSuggestion
   protected[core] case object ToChain extends TopLevelSuggestion
 
   protected[core] type NamedTopLevelSuggestion = (String, TopLevelSuggestion)

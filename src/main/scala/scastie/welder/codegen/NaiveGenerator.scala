@@ -1,7 +1,5 @@
 package scastie.welder.codegen
 
-import scala.meta._
-
 class NaiveGenerator extends ScalaCodeGenerator {
   import ScalaAST._
   import scastie.welder.Constants._
@@ -58,7 +56,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
 
   private def isSingleLine(x: String): Boolean = !x.exists(_ == '\n')
 
-  private case class PrettyPrinter(indent: Int = 0, parents: List[ScalaAST] = Nil) {
+  private case class PrettyPrinter(indent: Int, parents: List[ScalaAST]) {
     private lazy val newline = "\n" + "  " * indent
     private lazy val newline2 = newline + "  "
 
@@ -99,7 +97,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
       val pat = genPattern(c.pattern)
       val guard = c.guard.map(g => s"if ${gen(g)} ").getOrElse("")
       val body = indented.gen(c.body)
-      
+
       s"case $pat $guard => $newline2$body"
     }
 
@@ -110,6 +108,11 @@ class NaiveGenerator extends ScalaCodeGenerator {
 
     def gen(ast: ScalaAST): String = {
       def rec = from(ast)
+
+      val isInBlock = hasParent && (parent match {
+        case _: Block | _: Function | _: PartialFunction => true
+        case _ => false
+      })
 
       val res = ast match {
         case Raw(text)                           => text
@@ -122,7 +125,9 @@ class NaiveGenerator extends ScalaCodeGenerator {
         case Apply(obj, Seq(f: Function))        => s"${rec.gen(obj)} ${fresh.gen(f)}"
         case Apply(obj, Seq(f: PartialFunction)) => s"${rec.gen(obj)} ${fresh.gen(f)}"
         case Apply(obj, args)                    => s"${rec.gen(obj)}(${args map fresh.gen mkString ", "})"
-        case Block(stmts)                        => s"{${newline2}${stmts map indented.fresh.gen mkString newline2}${newline}}"
+        case Block(stmts) if isInBlock           => stmts map rec.fresh.gen mkString newline
+        case Block(stmts)                        => s"{${newline2}${stmts map rec.fresh.gen mkString newline2}${newline}}"
+
         case Ascript(obj, tpe)                   => s"${rec.gen(obj)}: ${rec.gen(tpe)}"
 
         case ValDef(pattern, rhs)                => s"val ${fresh.genPattern(pattern)} = ${rec.gen(rhs)}"
@@ -136,7 +141,7 @@ class NaiveGenerator extends ScalaCodeGenerator {
         val mustPar = ast match {
           case _: Raw | _: StringLiteral | _: IntLiteral => false
           case _: Select | _: TypeApply | _: Apply       => false
-          case _: Tuple                                  => false
+          case _: Tuple | _: Block                       => false
 
           case _                                         => true
         }
@@ -148,16 +153,5 @@ class NaiveGenerator extends ScalaCodeGenerator {
 
   }
 
-  override def generateScalaCode(ast: ScalaAST): String = {
-    val res = PrettyPrinter().gen(ast)
-
-    val parsed = res.parse[Stat]
-
-    parsed match {
-      case Parsed.Success(tree) => println(tree.syntax)
-      case _                    =>
-    }
-
-    res
-  }
+  override def generateScalaCode(ast: ScalaAST): String = PrettyPrinter(0, Nil).gen(ast)
 }

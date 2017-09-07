@@ -179,9 +179,9 @@ trait Synthesizers extends ExprOps { self: Assistant =>
       }
     }
 
-    private def synthesizeImplI(id: MetaIdentifier, hyp: Expr)(f: Synthesizer => ScalaAST): ScalaAST = {
+    private def synthesizeImplI(id: MetaIdentifier, hyp: Expr)(f: (String, Synthesizer) => ScalaAST): ScalaAST = {
       updatedVarThen(Var(id), ExprNamer(BasicNamer(id))(hyp)) { (name, synth) =>
-        Raw("implI")(synthesizeExpr(hyp))(Function(Seq(name), f(synth)))
+        Raw("implI")(synthesizeExpr(hyp))(Function(Seq(name), f(name, synth)))
       }
     }
 
@@ -206,7 +206,7 @@ trait Synthesizers extends ExprOps { self: Assistant =>
 
       case ForallI(vd, body)               => synthesizeForallI(vd)(_.synthesizeProof(body))
       case FlattenedForallE(expr, terms)   => Raw("forallE")(synthesizeProof(expr))(terms map synthesizeExpr)
-      case ImplI(id, hyp, concl)           => synthesizeImplI(id, hyp)(_.synthesizeProof(concl))
+      case ImplI(id, hyp, concl)           => synthesizeImplI(id, hyp)((_, synth) => synth.synthesizeProof(concl))
       case ImplE(impl, hyp)                => Raw("implE")(synthesizeProof(impl))((Raw("_") `.` "by")(synthesizeProof(hyp)))
       case AndI(proofs)                    => Raw("andI")(proofs map synthesizeProof)
       case AndE(cunj, parts, body)         => synthesizeAndE(cunj, parts, body)
@@ -269,8 +269,17 @@ trait Synthesizers extends ExprOps { self: Assistant =>
               PartialFunction(Seq(Case(Unapply(Raw(""), names), None, Match(Raw(names.head) `.` "expression", cases)))))
           }
 
-        case AssumeHypothesis => expr match {
-          case Implies(hyp, body) => synthesizeImplI("thm", hyp)(_.suggest(body))
+        case AssumeHypothesis(false) => expr match {
+          case Implies(hyp, body) => synthesizeImplI("thm", hyp)((_, synth) => synth.suggest(body))
+        }
+
+        case AssumeHypothesis(true) => expr match {
+          case Implies(hyp @ And(parts), body) => synthesizeImplI("thm", hyp) { (name, synth) =>
+            updatedVarsThen(parts.map(e => ((), ExprNamer(BasicNamer("part"))(e)))) { (vars, rec) =>
+              Block(Seq(ValDef(Unapply(Raw("Seq"), vars), Ascript(Raw("andE")(Raw(name)), Raw("Seq[Theorem]"))),
+                synth.suggest(body)))
+            }
+          }
         }
 
         case ToChain => expr match {
