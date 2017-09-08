@@ -40,9 +40,8 @@ trait ContextAnalysis { self: Macros =>
   }(c.enclosingPackage).get
 
   protected[macros] lazy val reachableDefs: Set[DefTree] = {
-    case class Input(path: List[Tree], inClosedScope: Boolean) {
+    case class Input(path: List[Tree]) {
       def next = copy(path = path.tail)
-      def next(isInClosedScope: Boolean) = copy(path = path.tail, inClosedScope = isInClosedScope)
 
       def isPrefix(tree: Tree): Boolean = path != Nil && path.head == tree
     }
@@ -51,25 +50,21 @@ trait ContextAnalysis { self: Macros =>
     implicit def mergeOutputs(outs: Seq[Output]): Output = outs.flatten.toSet
 
     val traverser = IOTraverser[Input, Output](Set.empty) {
-      case (tree, input, rec) if input.isPrefix(tree) => {
+      case (tree, input, rec) if input.isPrefix(tree) => {        
         val output = tree match {
-          case Template(_, self, body)         => rec.some(body, input.next(false)) ++ ValOrDefDefCollector(tree)
-          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, input.next(true)) ++ params.flatten
-          case Function(params, body)          => rec.one(body, input.next(true)) ++ params
+          case Template(_, self, body)         => rec.some(body, input.next)
+          case DefDef(_, _, _, params, _, rhs) => rec.one(rhs, input.next) ++ params.flatten
+          case Function(params, body)          => rec.one(body, input.next) ++ params
           case CaseDef(pat, _, body)           => rec.one(body, input.next) ++ collectBinds(pat)
           case _                               => rec.children(tree, input.next)
         }
 
-        if (input.inClosedScope) {
-          output ++ ValOrDefDefCollector(tree, tree.children.find(input.next.isPrefix).getOrElse(null))
-        } else {
-          output
-        }
+        output ++ ValOrDefDefCollector(tree, tree.children.find(input.next.isPrefix).getOrElse(null))
       }
     }
 
     c.enclosingRun.units.map {
-      unit => traverser(unit.body, Input(pathToMacro, false))
+      unit => traverser(unit.body, Input(pathToMacro))
     }.flatten.toSet
   }
 
@@ -189,7 +184,7 @@ trait ContextAnalysis { self: Macros =>
     }
   }
 
-  // must be use by inline suggest only
+  // must be used by inline suggest only
   protected[macros] lazy val enclosingOpChain: OpChain = pathToMacro.foldRight(Option.empty[OpChain]) {
     case (_, found @ Some(_))             => found
     case (TreeExtractors.Chain(chain), _) => Some(chain)
