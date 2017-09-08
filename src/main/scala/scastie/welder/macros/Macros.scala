@@ -18,7 +18,7 @@ class Macros(val c: Context)
   private val end = originalPos(c.macroApplication.pos.end)
 
   lazy val rewriteAnnotationType = c.prefix.tree.tpe.member(TypeName("rewrite")).asType.toTypeIn(c.prefix.tree.tpe)
-  
+
   lazy val reflectedContext = {
     val values = reachableDefs.filter(!_.symbol.isMethod).map(vd => vd.name.toString -> vd.name).toMap
 
@@ -41,7 +41,7 @@ class Macros(val c: Context)
 
     q"scastie.welder.core.ReflectedContext($values ++ $rewrites)"
   }
-  
+
   lazy val expansionInit = q"""
       import com.olegych.scastie.api._
 	    val reflCtx = ${reflectedContext}
@@ -57,10 +57,13 @@ class Macros(val c: Context)
 	      ..$expansionInit
 	      
 	      val expr = $expr
-        val str = "<h1>Select suggestion to apply</h1><br><br>" + $call.map { case assistant.SynthesizedTopLevelSuggestion(name, replacement) =>
-          "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\");ScastieExports.run()'>" + name + "</button>"
-        }.mkString(" ")
-	      println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
+	      val suggs = $call
+	      if (suggs.size > 0) {
+          val str = "<h1>Select suggestion to apply</h1><br><br>" + suggs.map { case assistant.SynthesizedTopLevelSuggestion(name, replacement) =>
+            "<button onclick='ScastieExports.replaceCode(" + $start + ", " + $end + ", \"" + replacement + "\");ScastieExports.run()'>" + name + "</button>"
+          }.mkString(" ")
+	        println(Runtime.write(List(Instrumentation(Position($start, $end), Html(str)))))
+	      }
 	      prove(expr)
 	    }
 	    """
@@ -135,9 +138,12 @@ class Macros(val c: Context)
 	      
 	      ..$chainContextInit
 	      
-        val str = assistant.renderHTML(lhs, rhs, $call, $chainStart, $chainEnd)
-        
-	      println(Runtime.write(List(Instrumentation(Position($segmentStart, $segmentEnd), Html(str).fold))))
+	      val suggs = $call
+	      if (suggs.size > 0) {
+          val str = assistant.renderHTML(lhs, rhs, $call, $chainStart, $chainEnd)
+	        println(Runtime.write(List(Instrumentation(Position($segmentStart, $segmentEnd), Html(str).fold))))
+	      }
+	      
 	      truth
 	    })
 	    """
